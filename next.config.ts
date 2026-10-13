@@ -1,12 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The e2e script uses its own build dir so it can run next to a normal `npm run dev`.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   experimental: {
     agentFeedback: true,
   },
-  cacheComponents: true,
-  partialPrefetching: true,
+  // PGlite ships a WASM Postgres; keep it out of the bundle so it loads from node_modules.
+  serverExternalPackages: ["@electric-sql/pglite", "sharp"],
+  outputFileTracingIncludes: {
+    "/api/bot/runbook": ["./bot/RUNBOOK.md"],
+    "/*": ["./drizzle/**/*"],
+  },
   turbopack: {
     rules: {
       "*.css": {

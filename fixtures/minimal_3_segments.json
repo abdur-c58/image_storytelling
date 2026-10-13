@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0",
+  "series": {
+    "series_id": "zombie-outbreak",
+    "series_title": "Zombie Outbreak",
+    "episode_number": 1,
+    "episode_title_short": "Minimal Test"
+  },
+  "style_bible": {
+    "global_style_prompt": "Flat 2D cartoon illustration, thick clean outlines, muted colours, simple shapes, storybook style",
+    "negative_prompt": "photorealistic, 3d render, text, watermark",
+    "characters": [
+      {
+        "id": "protagonist",
+        "name": "You",
+        "visual_description": "a stick figure with a round white head, a mustard yellow beanie and a grey scarf"
+      }
+    ]
+  },
+  "voice": {
+    "voice_id": "",
+    "pause_between_segments_ms": 250
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2,
+      "remotion": {
+        "template": "title_card",
+        "props": { "title": "DAY 1", "background": "dark" }
+      }
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "narration": "You are on the roof of your tower. The wind is loud, and the city below is quiet.",
+      "image": {
+        "prompt": "The protagonist standing alone on a flat concrete rooftop, city skyline behind, empty streets far below",
+        "characters_present": ["protagonist"],
+        "shot_type": "wide",
+        "mood": "lonely, tense",
+        "time_of_day": "dusk"
+      },
+      "sfx": [
+        {
+          "id": "seg_002_sfx_1",
+          "search_query": "wind howling rooftop",
+          "alt_queries": ["strong wind loop"],
+          "exclude_tags": ["music", "voice"],
+          "placement": "whole_segment",
+          "loop": true,
+          "fade_in_ms": 300,
+          "fade_out_ms": 500
+        }
+      ]
+    },
+    {
+      "id": "seg_003",
+      "order": 3,
+      "type": "infographic",
+      "narration": "You count what you have left.",
+      "remotion": {
+        "template": "supplies_card",
+        "props": {
+          "title": "SUPPLIES",
+          "subtitle": "DAY 1",
+          "background": "cream",
+          "items": [
+            { "label": "Water", "value": "5,000 gal", "icon": "water_jug", "icon_count": 5, "icon_total": 5 },
+            { "label": "Food", "value": "2 days", "icon": "can", "icon_count": 1, "icon_total": 5 }
+          ]
+        }
+      },
+      "sfx": [
+        {
+          "id": "seg_003_sfx_1",
+          "search_query": "tin can set down on concrete",
+          "placement": "at_phrase",
+          "at_phrase": "count what you have",
+          "loop": false
+        }
+      ]
+    }
+  ],
+  "thumbnail": {
+    "image_prompt": "Close-up of the protagonist looking worried on a rooftop at dusk, zombies crowding the street far below, orange and blue gradient sky",
+    "characters_present": ["protagonist"],
+    "text_layers": [
+      { "text": "DAY 1", "style": "impact_white_black_outline", "position": "top_center", "max_font_size_px": 220 },
+      { "text": "FLOOR 30", "style": "red_badge", "position": "left_middle" }
+    ]
+  },
+  "youtube": {
+    "channel_name": "Test Channel",
+    "title": "Zombie Outbreak Test: Minimal",
+    "description": "A three-segment smoke test.\n\n{{chapters}}\n\n{{sfx_credits}}",
+    "tags": ["zombie", "story", "animation"],
+    "visibility": "private"
+  }
+}

@@ -1,0 +1,588 @@
+{
+  "schema_version": "1.0",
+  "series": {
+    "series_id": "zombie-outbreak",
+    "series_title": "Zombie Outbreak",
+    "episode_number": 2,
+    "total_episodes_planned": 6,
+    "episode_title_short": "Trapped On The Roof",
+    "recap_of_previous": "The city fell thirty days ago. You reached the roof of your 34-floor tower with Inez, your neighbour from floor 33, and pulled up the ladder behind you.",
+    "cliffhanger": "Someone answers the radio, and they know your name.",
+    "next_episode_teaser": "The voice on the radio says they can get you out. They just need you to go down to floor 20 first.",
+    "state_carryover": {
+      "day_counter_end": 33,
+      "resources": { "water_gallons": 4600, "food_days": 1, "gas_canisters": 2, "radio_batteries": 3 },
+      "characters_status": {
+        "protagonist": "healthy, exhausted",
+        "inez": "sprained ankle, refusing to give up",
+        "hallway_count_floor_30": 41
+      }
+    }
+  },
+  "style_bible": {
+    "global_style_prompt": "Flat 2D cartoon illustration in a consistent storybook style, thick clean black outlines, muted desaturated colours with warm orange highlights, simple rounded shapes, minimal background detail, no text",
+    "negative_prompt": "photorealistic, 3d render, gore, blood splatter, text, letters, watermark, logo, extra limbs, deformed hands",
+    "aspect_ratio": "16:9",
+    "target_resolution": "1920x1080",
+    "palette_notes": "Dusk oranges and slate blues; zombies are grey-green; the protagonist's beanie is always mustard yellow.",
+    "characters": [
+      {
+        "id": "protagonist",
+        "name": "You",
+        "visual_description": "a stick figure with a round white head, small dot eyes, a mustard yellow knitted beanie and a long grey scarf",
+        "reference_image_ids": ["protagonist_ref_1"]
+      },
+      {
+        "id": "inez",
+        "name": "Inez",
+        "visual_description": "an older woman with short white hair, round red glasses, a blue headband and a long brown cardigan",
+        "reference_image_ids": ["inez_ref_1"]
+      },
+      {
+        "id": "zombies",
+        "name": "Zombies",
+        "visual_description": "simple grey-green stick figures with hunched shoulders, blank white eyes and slow shambling poses, never gory",
+        "reference_image_ids": []
+      }
+    ],
+    "reference_assets": [
+      {
+        "id": "protagonist_ref_1",
+        "description": "Front view of the protagonist on a plain background",
+        "asset_url_or_path": "https://example.com/refs/protagonist_front.png"
+      },
+      {
+        "id": "inez_ref_1",
+        "description": "Front view of Inez on a plain background",
+        "asset_url_or_path": "https://example.com/refs/inez_front.png"
+      }
+    ]
+  },
+  "voice": {
+    "provider": "fish_audio",
+    "voice_id": "",
+    "model": "drama-3-preview",
+    "speed": 1.0,
+    "style_notes": "calm, tense, second-person narrator",
+    "pronunciation_overrides": { "Inez": "ee-NEZ" },
+    "pause_between_segments_ms": 250
+  },
+  "audio": {
+    "master_loudness_lufs": -14,
+    "true_peak_db": -1.5,
+    "voice_target_lufs": -16,
+    "sfx_default_gain_db": -18,
+    "music": { "enabled": false, "query": "", "gain_db": -26, "duck_under_voice": true }
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2.5,
+      "remotion": { "template": "title_card", "props": { "title": "DAY 31", "background": "dark" } },
+      "sfx": [
+        {
+          "id": "seg_001_sfx_1",
+          "search_query": "low wind ambience",
+          "placement": "whole_segment",
+          "loop": true,
+          "gain_db": -22,
+          "fade_in_ms": 800,
+          "continues_into_next": true
+        }
+      ],
+      "transition_out": "fade_black"
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "narration": "Thirty-one days ago, the city fell. You are on the roof of your tower, thirty-four floors up, and the ladder is the only way in.",
+      "image": {
+        "prompt": "The protagonist sitting on the edge of a flat concrete rooftop, legs dangling, a rolled-up metal ladder beside them, a vast quiet city below",
+        "characters_present": ["protagonist"],
+        "shot_type": "wide",
+        "mood": "lonely, tense",
+        "time_of_day": "dusk",
+        "motion": "slow_zoom_in"
+      },
+      "sfx": [
+        {
+          "id": "seg_002_sfx_1",
+          "search_query": "wind howling rooftop",
+          "alt_queries": ["strong wind loop", "city wind ambience"],
+          "exclude_tags": ["music", "voice"],
+          "placement": "whole_segment",
+          "loop": true,
+          "fade_in_ms": 300,
+          "fade_out_ms": 500
+        }
+      ]
+    },
+    {
+      "id": "seg_003",
+      "order": 3,
+      "type": "illustration",
+      "narration": "Behind you sits the water tank. Five thousand gallons. In front of you, four floors down, your old flat is full of them.",
+      "image": {
+        "prompt": "A large round metal water tank on the rooftop, the protagonist looking down through a stairwell gap at dark floors below",
+        "characters_present": ["protagonist"],
+        "shot_type": "medium",
+        "mood": "uneasy",
+        "time_of_day": "dusk"
+      },
+      "sfx": [
+        {
+          "id": "seg_003_sfx_1",
+          "search_query": "metal tank knock hollow",
+          "placement": "at_phrase",
+          "at_phrase": "the water tank",
+          "loop": false,
+          "gain_db": -14
+        }
+      ]
+    },
+    {
+      "id": "seg_004",
+      "order": 4,
+      "type": "infographic",
+      "narration": "Here is what you have.",
+      "remotion": {
+        "template": "supplies_card",
+        "props": {
+          "title": "SUPPLIES",
+          "subtitle": "DAY 31",
+          "background": "cream",
+          "items": [
+            { "label": "Water", "value": "5,000 gal", "icon": "water_jug", "icon_count": 9, "icon_total": 9 },
+            { "label": "Food", "value": "2 days", "icon": "can", "icon_count": 1, "icon_total": 5 },
+            { "label": "Gas", "value": "3 canisters", "icon": "gas_canister", "icon_count": 3, "icon_total": 5 }
+          ],
+          "footer": "And your flat is full of them."
+        }
+      }
+    },
+    {
+      "id": "seg_005",
+      "order": 5,
+      "type": "illustration",
+      "narration": "Inez is asleep under the solar panel, wrapped in two blankets. She is seventy-one, and she has not complained once.",
+      "image": {
+        "prompt": "Inez asleep under a tilted solar panel on the rooftop, wrapped in blankets, the protagonist keeping watch nearby",
+        "characters_present": ["inez", "protagonist"],
+        "shot_type": "medium",
+        "mood": "tender, quiet",
+        "time_of_day": "night"
+      },
+      "sfx": [
+        {
+          "id": "seg_005_sfx_1",
+          "search_query": "night city ambience distant",
+          "placement": "whole_segment",
+          "loop": true
+        }
+      ]
+    },
+    {
+      "id": "seg_006",
+      "order": 6,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2.5,
+      "remotion": { "template": "title_card", "props": { "title": "DAY 32", "background": "dark" } },
+      "transition_out": "fade_black"
+    },
+    {
+      "id": "seg_007",
+      "order": 7,
+      "type": "illustration",
+      "narration": "In the morning you boil water on the camping stove. The pigeons come back, like they do every day, and line up on the railing.",
+      "image": {
+        "prompt": "A small camping stove with a pot of boiling water on the rooftop, a row of pigeons on the metal railing behind",
+        "characters_present": ["protagonist"],
+        "shot_type": "close-up",
+        "mood": "calm",
+        "time_of_day": "morning"
+      },
+      "sfx": [
+        {
+          "id": "seg_007_sfx_1",
+          "search_query": "boiling water pot bubbling",
+          "placement": "segment_start",
+          "duration_sec": 6,
+          "loop": true
+        },
+        {
+          "id": "seg_007_sfx_2",
+          "search_query": "pigeons cooing wings flapping",
+          "placement": "at_phrase",
+          "at_phrase": "The pigeons come back",
+          "loop": false
+        }
+      ]
+    },
+    {
+      "id": "seg_008",
+      "order": 8,
+      "type": "illustration",
+      "narration": "Across the street, on the roof of the bank, somebody has painted a message in huge white letters. Trust the radio.",
+      "image": {
+        "prompt": "The roof of a bank building across the street with a huge hand-painted message, seen from the protagonist's rooftop, paint can on its side",
+        "characters_present": [],
+        "shot_type": "over-the-shoulder",
+        "mood": "mysterious",
+        "time_of_day": "morning"
+      }
+    },
+    {
+      "id": "seg_009",
+      "order": 9,
+      "type": "illustration",
+      "narration": "You dig the old radio out of your bag. Three batteries left. You switch it on, and there is nothing but static.",
+      "image": {
+        "prompt": "The protagonist holding a battered handheld radio, three batteries lined up on the concrete beside them",
+        "characters_present": ["protagonist"],
+        "shot_type": "close-up",
+        "mood": "hopeful, nervous",
+        "time_of_day": "morning"
+      },
+      "sfx": [
+        {
+          "id": "seg_009_sfx_1",
+          "search_query": "radio static hiss",
+          "alt_queries": ["walkie talkie static"],
+          "placement": "at_phrase",
+          "at_phrase": "nothing but static",
+          "loop": true,
+          "duration_sec": 4,
+          "gain_db": -16
+        }
+      ]
+    },
+    {
+      "id": "seg_010",
+      "order": 10,
+      "type": "infographic",
+      "narration": "Every day you count them in the hallway below the hatch.",
+      "remotion": {
+        "template": "pictogram_chart",
+        "props": {
+          "title": "IN THE HALLWAY",
+          "background": "dark",
+          "items": [
+            { "label": "Day 30", "value": 23, "icon": "zombie_head", "icon_count": 23, "icon_total": 50 },
+            { "label": "Day 31", "value": 31, "icon": "zombie_head", "icon_count": 31, "icon_total": 50 },
+            { "label": "Day 32", "value": 41, "icon": "zombie_head", "icon_count": 41, "icon_total": 50 }
+          ],
+          "footer": "They are coming up."
+        }
+      }
+    },
+    {
+      "id": "seg_011",
+      "order": 11,
+      "type": "illustration",
+      "narration": "That night something knocks on the hatch. Three slow knocks. Then nothing.",
+      "image": {
+        "prompt": "A metal roof hatch in the floor of the rooftop, lit by a single flashlight, the protagonist frozen a few steps away",
+        "characters_present": ["protagonist"],
+        "shot_type": "top-down",
+        "mood": "dread",
+        "time_of_day": "night",
+        "negative_prompt_extra": "zombies visible"
+      },
+      "sfx": [
+        {
+          "id": "seg_011_sfx_1",
+          "search_query": "knocking on metal hatch",
+          "alt_queries": ["knock on metal door"],
+          "placement": "at_phrase",
+          "at_phrase": "Three slow knocks",
+          "loop": false,
+          "gain_db": -10
+        }
+      ]
+    },
+    {
+      "id": "seg_012",
+      "order": 12,
+      "type": "reuse_image",
+      "narration": "You do not sleep. Inez does not sleep either.",
+      "image": { "reuse_from_segment_id": "seg_011", "motion": "slow_zoom_out" }
+    },
+    {
+      "id": "seg_013",
+      "order": 13,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2.5,
+      "remotion": { "template": "title_card", "props": { "title": "DAY 33", "background": "dark" } },
+      "transition_out": "fade_black"
+    },
+    {
+      "id": "seg_014",
+      "order": 14,
+      "type": "illustration",
+      "narration": "Inez has an idea. She points at the kite tangled on the aerial. If sound pulls them up, she says, sound can pull them down.",
+      "image": {
+        "prompt": "Inez pointing up at a red kite tangled on a tall rooftop aerial, the protagonist looking up beside her",
+        "characters_present": ["inez", "protagonist"],
+        "shot_type": "medium",
+        "mood": "determined",
+        "time_of_day": "afternoon",
+        "motion": "pan_right"
+      }
+    },
+    {
+      "id": "seg_015",
+      "order": 15,
+      "type": "infographic",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 4,
+      "remotion": {
+        "template": "statement_card",
+        "props": {
+          "title": "THE PLAN",
+          "body": "If sound pulls them up, sound can pull them down.",
+          "background": "dark",
+          "accent": "red"
+        }
+      }
+    },
+    {
+      "id": "seg_016",
+      "order": 16,
+      "type": "illustration",
+      "narration": "You tie the radio to the kite string and lower it down the side of the building, floor by floor, until it hangs outside floor twenty.",
+      "image": {
+        "prompt": "The protagonist leaning over the roof edge lowering a radio on a long kite string down the side of the tower",
+        "characters_present": ["protagonist"],
+        "shot_type": "over-the-shoulder",
+        "mood": "focused",
+        "time_of_day": "afternoon"
+      },
+      "sfx": [
+        {
+          "id": "seg_016_sfx_1",
+          "search_query": "rope sliding through hands",
+          "placement": "segment_start",
+          "loop": false
+        },
+        {
+          "id": "seg_016_sfx_2",
+          "search_query": "wind gusts high building",
+          "placement": "whole_segment",
+          "loop": true,
+          "continues_into_next": true
+        }
+      ]
+    },
+    {
+      "id": "seg_017",
+      "order": 17,
+      "type": "infographic",
+      "narration": "Floor twenty. Fourteen floors below you.",
+      "remotion": {
+        "template": "lower_third",
+        "props": {
+          "title": "FLOOR 20",
+          "subtitle": "14 floors below the roof",
+          "background": "image",
+          "background_image_segment_id": "seg_016"
+        }
+      }
+    },
+    {
+      "id": "seg_018",
+      "order": 18,
+      "type": "illustration",
+      "narration": "Inez turns the volume all the way up. The static roars, and down in the street, every head turns toward the sound.",
+      "image": {
+        "prompt": "A street far below full of zombies all turning their heads toward a radio dangling from a string on the side of the tower",
+        "characters_present": ["zombies"],
+        "shot_type": "top-down",
+        "mood": "tense",
+        "time_of_day": "afternoon"
+      },
+      "sfx": [
+        {
+          "id": "seg_018_sfx_1",
+          "search_query": "loud radio static",
+          "placement": "at_phrase",
+          "at_phrase": "The static roars",
+          "loop": true,
+          "duration_sec": 5,
+          "gain_db": -12
+        },
+        {
+          "id": "seg_018_sfx_2",
+          "search_query": "crowd groaning distant",
+          "must_include_tags": ["crowd"],
+          "exclude_tags": ["music", "speech"],
+          "placement": "segment_end",
+          "offset_sec": -3,
+          "loop": false
+        }
+      ]
+    },
+    {
+      "id": "seg_019",
+      "order": 19,
+      "type": "illustration",
+      "narration": "It works. You hear them on the stairs, going down instead of up. The hallway under the hatch goes quiet.",
+      "image": {
+        "prompt": "A dim stairwell seen from above with grey-green figures shuffling downward, away from the roof",
+        "characters_present": ["zombies"],
+        "shot_type": "top-down",
+        "mood": "relief",
+        "time_of_day": "afternoon"
+      },
+      "sfx": [
+        {
+          "id": "seg_019_sfx_1",
+          "search_query": "footsteps shuffling stairs",
+          "placement": "segment_start",
+          "loop": true,
+          "duration_sec": 6
+        }
+      ]
+    },
+    {
+      "id": "seg_020",
+      "order": 20,
+      "type": "infographic",
+      "narration": "By sunset, the count is the lowest it has been in a week.",
+      "remotion": {
+        "template": "pictogram_chart",
+        "props": {
+          "title": "IN THE HALLWAY",
+          "subtitle": "DAY 33",
+          "background": "dark",
+          "items": [
+            { "label": "Morning", "value": 41, "icon": "zombie_head", "icon_count": 41, "icon_total": 50 },
+            { "label": "Sunset", "value": 6, "icon": "zombie_head", "icon_count": 6, "icon_total": 50 }
+          ]
+        }
+      }
+    },
+    {
+      "id": "seg_021",
+      "order": 21,
+      "type": "illustration",
+      "narration": "You and Inez share the last can of peaches and watch the sun go down behind the bank roof. For the first time in a month, you laugh.",
+      "image": {
+        "prompt": "The protagonist and Inez sitting side by side on the rooftop sharing a can of peaches, sunset behind the bank building",
+        "characters_present": ["protagonist", "inez"],
+        "shot_type": "wide",
+        "mood": "warm, hopeful",
+        "time_of_day": "sunset"
+      },
+      "transition_out": "crossfade_150ms"
+    },
+    {
+      "id": "seg_022",
+      "order": 22,
+      "type": "illustration",
+      "narration": "Then the radio crackles. Not static. A voice. It says your name.",
+      "image": {
+        "prompt": "Close-up of the handheld radio's speaker grille with a faint glow, the protagonist's shocked face reflected in it",
+        "characters_present": ["protagonist"],
+        "shot_type": "close-up",
+        "mood": "shock",
+        "time_of_day": "night"
+      },
+      "sfx": [
+        {
+          "id": "seg_022_sfx_1",
+          "search_query": "radio crackle burst",
+          "placement": "segment_start",
+          "loop": false,
+          "gain_db": -12
+        }
+      ],
+      "transition_out": "fade_black"
+    }
+  ],
+  "thumbnail": {
+    "image_prompt": "Close-up of the protagonist with a worried expression on the edge of a rooftop at dusk, a crowd of zombies in the street far below, a tall tower behind, orange and blue gradient sky",
+    "characters_present": ["protagonist"],
+    "text_layers": [
+      { "text": "33 DAYS", "style": "impact_white_black_outline", "position": "top_center", "max_font_size_px": 220 },
+      { "text": "FLOOR 34", "style": "red_badge", "position": "left_middle" }
+    ],
+    "safe_zone_note": "keep key content away from bottom-right (duration stamp)",
+    "alt_variants": 1
+  },
+  "youtube": {
+    "channel_name": "Beanie Stories",
+    "title": "Zombie Outbreak Ep. 2: Trapped On The Roof Until Day 33",
+    "description": "Thirty-one days after the city fell, you and Inez are trapped on the roof of a 34-floor tower. The hallway below is filling up, and someone has left a message on the bank roof: trust the radio.\n\nPreviously: you reached the roof with Inez and pulled up the ladder.\n\n{{chapters}}\n\nSound effects:\n{{sfx_credits}}\n\nThis story is fiction. Visuals and narration were made with AI tools.",
+    "tags": ["zombie story", "zombie apocalypse", "survival story", "animated story", "zombie outbreak"],
+    "category": "Entertainment",
+    "language": "en",
+    "visibility": "private",
+    "scheduled_publish_at": null,
+    "playlist": "Zombie Outbreak",
+    "made_for_kids": false,
+    "contains_altered_or_synthetic_media": true,
+    "comments_enabled": true,
+    "pinned_comment": "What would you have done with the radio? Episode 3 is coming next week.",
+    "end_screen_note": "Link episode 1 and the playlist.",
+    "chapters_from_segments": true
+  },
+  "chapters": [
+    { "segment_id": "seg_001", "title": "Day 31: The Roof" },
+    { "segment_id": "seg_006", "title": "Day 32: The Message" },
+    { "segment_id": "seg_013", "title": "Day 33: The Plan" },
+    { "segment_id": "seg_021", "title": "The Voice" }
+  ],
+  "automation": {
+    "auto_start_on_submit": true,
+    "approval_gates": { "before_render": false, "before_publish": true },
+    "bot_triggers": [
+      {
+        "trigger_id": "generate_images",
+        "bot_task_type": "generate_images",
+        "fire_when": "VALIDATED",
+        "depends_on": [],
+        "image_provider": "google_flow",
+        "batch_size": 8,
+        "output_naming": "{segment_id}.png",
+        "retry": { "max_attempts": 3, "backoff_sec": 60 },
+        "timeout_minutes": 180
+      },
+      {
+        "trigger_id": "generate_thumbnail_base",
+        "bot_task_type": "generate_images",
+        "fire_when": "VALIDATED",
+        "depends_on": [],
+        "output_naming": "thumbnail_base_{variant}.png"
+      },
+      {
+        "trigger_id": "publish_youtube",
+        "bot_task_type": "upload_youtube",
+        "fire_when": "RENDER_COMPLETE",
+        "depends_on": ["generate_images", "generate_thumbnail_base"],
+        "retry": { "max_attempts": 2, "backoff_sec": 300 },
+        "timeout_minutes": 90
+      }
+    ]
+  },
+  "render": {
+    "resolution": "1920x1080",
+    "fps": 30,
+    "burn_in_captions": false,
+    "caption_style": "none",
+    "intro_sec": 0,
+    "outro_sec": 0,
+    "codec": "h264",
+    "crf": 18,
+    "audio_bitrate_kbps": 192
+  }
+}

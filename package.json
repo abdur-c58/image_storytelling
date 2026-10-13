@@ -6,21 +6,45 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:worker": "python -m unittest discover -s worker/tests",
+    "e2e": "tsx scripts/e2e-dry-run.ts",
+    "schema:export": "tsx scripts/export-schema.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "fake-bot": "tsx scripts/fake-bot.ts",
+    "worker": "cd worker && python -m slideshow_worker run",
+    "worker:selfcheck": "cd worker && python -m slideshow_worker selfcheck"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1149.0",
+    "@aws-sdk/s3-request-presigner": "^3.1149.0",
+    "@electric-sql/pglite": "^0.5.9",
+    "drizzle-orm": "^0.45.4",
+    "jsonc-parser": "^3.3.1",
+    "lucide-react": "^1.55.0",
     "next": "16.4.0",
+    "next-themes": "^0.4.6",
+    "postgres": "^3.4.9",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.4"
   }
 }

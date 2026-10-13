@@ -1,26 +1,115 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0a0a0a;
+  --card: #f5f5f5;
+  --card-hover: #ebebeb;
+  --border: #e5e5e5;
+  --border-hover: #d4d4d4;
+  --muted: #737373;
+  --accent: #171717;
+  --accent-rgb: 23, 23, 23;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --info: #1d4ed8;
+}
+
+html.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #111111;
+  --card-hover: #1a1a1a;
+  --border: #1f1f1f;
+  --border-hover: #2e2e2e;
+  --muted: #a3a3a3;
+  --accent: #e5e5e5;
+  --accent-rgb: 229, 229, 229;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --info: #60a5fa;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-panel: var(--card);
+  --color-panel-hover: var(--card-hover);
+  --color-line: var(--border);
+  --color-line-hover: var(--border-hover);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --font-sans: var(--font-barlow);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-barlow), system-ui, -apple-system, "Segoe UI", sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+::selection {
+  background: rgba(var(--accent-rgb), 0.2);
+}
+
+button {
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
+
+/* In a layer so utilities on the same element (e.g. `chip text-warn`, `btn px-3`) win. */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-panel px-4 py-1.5 text-sm text-foreground transition-colors hover:border-line-hover hover:bg-panel-hover disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full border border-foreground bg-foreground px-4 py-1.5 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .card {
+    @apply rounded-2xl border border-line bg-panel p-5 transition-colors;
+  }
+  .input {
+    @apply rounded-xl border border-line bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted focus:border-line-hover;
+  }
+  .eyebrow {
+    @apply text-xs font-semibold tracking-[0.2em] text-muted uppercase;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-[11px] font-medium text-muted;
+  }
+  .link {
+    @apply underline decoration-muted/45 decoration-1 underline-offset-4 transition-colors hover:text-foreground;
+  }
+  .dot-grid {
+    background-image: radial-gradient(rgba(var(--accent-rgb), 0.09) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
 }
