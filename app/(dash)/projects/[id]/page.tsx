@@ -9,7 +9,7 @@ import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "@/lib/pipeline/requirements";
 import { ago, fmtSec, StateBadge } from "../../ui";
-import { ActionButton, AutoRefresh, CopyButton } from "./client";
+import { ActionButton, AutoRefresh, CopyButton, DeleteProjectButton } from "./client";
 
 const ACTIVE_STATES = new Set(["VALIDATED", "GENERATING", "IMAGES_RECEIVED", "THUMBNAIL", "MIX", "RENDER", "PUBLISH_REQUESTED"]);
 const STAGES = ["generate_images", "voice", "sfx", "cards", "align", "thumbnail_compose", "mix", "render", "upload_youtube"];
@@ -84,6 +84,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{project.title}</h1>
             <StateBadge state={project.state} />
+            {project.archived && <span className="chip text-muted">Archived</span>}
           </div>
           <p className={`mt-2 font-light ${project.state === "FAILED" ? "text-bad" : "text-muted"}`}>{project.stateDetail}</p>
           <p className="mt-1 text-sm font-light text-muted">
@@ -110,7 +111,15 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
               <ActionButton projectId={id} action={{ kind: "regen_thumbnail" }} label="New thumbnail image" />
             </>
           )}
-          <ActionButton projectId={id} action={{ kind: "archive" }} label="Archive" confirm="Archive this project and cancel its queued tasks?" />
+          {!project.archived && (
+            <ActionButton projectId={id} action={{ kind: "archive" }} label="Archive" confirm="Archive this project and cancel its queued tasks?" />
+          )}
+          <DeleteProjectButton
+            projectId={id}
+            title={project.title}
+            published={!!project.publishedAt}
+            active={activeTasks.length > 0}
+          />
         </div>
       </div>
 

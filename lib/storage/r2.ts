@@ -3,6 +3,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -77,5 +78,24 @@ export class R2Storage implements Storage {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  async deletePrefix(prefix: string): Promise<number> {
+    if (!prefix.startsWith(env.storagePrefix) || prefix === env.storagePrefix) throw new Error("Refusing to delete outside a project folder.");
+    let deleted = 0;
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token }),
+      );
+      const keys = (page.Contents ?? []).map((o) => o.Key).filter((k): k is string => !!k);
+      // Single-object deletes: DeleteObjects needs checksum headers that R2 and recent SDKs disagree on.
+      for (let i = 0; i < keys.length; i += 10) {
+        await Promise.all(keys.slice(i, i + 10).map((key) => this.delete(key)));
+      }
+      deleted += keys.length;
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return deleted;
   }
 }

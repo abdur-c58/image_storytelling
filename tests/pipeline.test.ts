@@ -12,12 +12,13 @@ import { projects, segments, tasks, type TaskRow } from "@/lib/db/schema";
 import type { ImageItem } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
 import { validateEpisodeText } from "@/lib/episode/validate";
-import { approveGate, regenerateImage, retryFailed } from "@/lib/pipeline/actions";
+import { approveGate, deleteProject, regenerateImage, retryFailed } from "@/lib/pipeline/actions";
 import { advance } from "@/lib/pipeline/advance";
 import { onTaskCompleted } from "@/lib/pipeline/complete";
 import { createProject } from "@/lib/pipeline/project";
 import { assetKeys, requirements } from "@/lib/pipeline/requirements";
 import { completeTask, failTask, heartbeatTask, leaseNext, reapExpired } from "@/lib/queue";
+import { getStorage, projectObjectPrefix } from "@/lib/storage";
 
 const minimalText = readFileSync(path.join(__dirname, "..", "fixtures", "minimal_3_segments.json"), "utf8");
 const fullText = readFileSync(path.join(__dirname, "..", "fixtures", "full_example.json"), "utf8");
@@ -230,5 +231,28 @@ describe("pipeline state machine", () => {
     const p = await project(id);
     expect(p.state).toBe("FAILED");
     expect(p.stateDetail).toMatch(/Flow refused/);
+  });
+
+  it("deletes a project with its files and rows, leaving other projects alone", async () => {
+    await clearQueue();
+    const doomed = await makeProject(minimalText);
+    const kept = await makeProject(minimalText);
+    const storage = getStorage();
+    const video = { taskId: null, assetKey: assetKeys.video, contentType: "video/mp4", status: "ready" } as const;
+    const doomedAsset = await createAsset(db, { ...video, projectId: doomed });
+    const keptAsset = await createAsset(db, { ...video, projectId: kept });
+    await storage.put(doomedAsset.storageKey, new Uint8Array([1, 2, 3]), "video/mp4");
+    await storage.put(keptAsset.storageKey, new Uint8Array([4, 5, 6]), "video/mp4");
+
+    const { filesDeleted } = await deleteProject(db, doomed);
+    expect(filesDeleted).toBe(1);
+    expect(await project(doomed)).toBeUndefined();
+    expect(await db.select().from(tasks).where(eq(tasks.projectId, doomed))).toEqual([]);
+    expect(await db.select().from(segments).where(eq(segments.projectId, doomed))).toEqual([]);
+    expect(await storage.head(doomedAsset.storageKey)).toBeNull();
+    expect(await storage.head(keptAsset.storageKey)).toBe(3);
+    expect(await project(kept)).toBeDefined();
+    await expect(deleteProject(db, doomed)).rejects.toThrow(/not found/);
+    expect(() => projectObjectPrefix("../other")).toThrow();
   });
 });

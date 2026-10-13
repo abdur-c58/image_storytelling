@@ -5,19 +5,33 @@ import { projects } from "@/lib/db/schema";
 import { ago, PageHeader, StateBadge } from "../ui";
 import { DropImport } from "./drop-import";
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({ searchParams }: PageProps<"/projects">) {
+  const showArchived = (await searchParams).archived === "1";
   const db = await getDb();
-  const rows = await db.select().from(projects).where(eq(projects.archived, false)).orderBy(desc(projects.updatedAt)).limit(200);
-  const existing = rows.map((p) => ({ id: p.id, seriesId: p.seriesId, episodeNumber: p.episodeNumber, title: p.title }));
+  const [rows, active] = await Promise.all([
+    db.select().from(projects).where(eq(projects.archived, showArchived)).orderBy(desc(projects.updatedAt)).limit(200),
+    showArchived
+      ? db.select({ id: projects.id, seriesId: projects.seriesId, episodeNumber: projects.episodeNumber, title: projects.title }).from(projects).where(eq(projects.archived, false))
+      : null,
+  ]);
+  const existing = (active ?? rows).map((p) => ({ id: p.id, seriesId: p.seriesId, episodeNumber: p.episodeNumber, title: p.title }));
   return (
     <>
-      <PageHeader eyebrow="Dashboard" title="Projects">
+      <PageHeader eyebrow="Dashboard" title={showArchived ? "Archived projects" : "Projects"}>
+        <Link href={showArchived ? "/projects" : "/projects?archived=1"} className="btn">
+          {showArchived ? "Active projects" : "Archived"}
+        </Link>
         <Link href="/new" className="btn-primary">
           New episode
         </Link>
       </PageHeader>
       <DropImport existing={existing}>
-        {rows.length === 0 ? (
+        {rows.length === 0 && showArchived ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-line py-16 text-center">
+            <p className="text-xl font-semibold tracking-tight">Nothing archived</p>
+            <p className="text-sm font-light text-muted">Archived projects show up here, where you can open or delete them.</p>
+          </div>
+        ) : rows.length === 0 ? (
           <div className="dot-grid flex flex-col items-center justify-center gap-2 rounded-2xl border border-line py-24 text-center">
             <p className="text-xl font-semibold tracking-tight">No projects yet</p>
             <p className="max-w-sm text-sm font-light text-muted">

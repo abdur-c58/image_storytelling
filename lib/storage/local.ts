@@ -1,5 +1,5 @@
 import "server-only";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { signToken, verifyToken } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -56,6 +56,16 @@ export class LocalStorage implements Storage {
 
   async delete(key: string): Promise<void> {
     await rm(this.pathFor(key), { force: true });
+  }
+
+  async deletePrefix(prefix: string): Promise<number> {
+    if (!prefix.endsWith("/") || prefix === env.storagePrefix) throw new Error("Refusing to delete outside a project folder.");
+    const dir = this.pathFor(prefix.slice(0, -1));
+    const count = await readdir(dir, { recursive: true, withFileTypes: true })
+      .then((entries) => entries.filter((e) => e.isFile()).length)
+      .catch(() => 0);
+    await rm(dir, { recursive: true, force: true });
+    return count;
   }
 }
 

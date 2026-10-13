@@ -11,6 +11,7 @@ import { validateEpisodeText } from "@/lib/episode/validate";
 import {
   approveGate,
   archiveProject,
+  deleteProject,
   regenerateImage,
   regenerateThumbnailBase,
   regenerateVoice,
@@ -84,6 +85,20 @@ export async function projectAction(projectId: string, action: ProjectAction): P
   }
   refresh();
   return { error: null };
+}
+
+export async function deleteProjectAction(projectId: string, typedTitle: string): Promise<{ error: string | null }> {
+  await requireAdmin();
+  const db = await getDb();
+  try {
+    const [project] = await db.select({ title: projects.title }).from(projects).where(eq(projects.id, projectId));
+    if (!project) return { error: "Project not found." };
+    if (typedTitle.trim() !== project.title.trim()) return { error: "The title you typed doesn't match." };
+    await deleteProject(db, projectId);
+  } catch (error) {
+    return { error: `Delete failed (${(error as Error).message}). The project is still here; try again.` };
+  }
+  redirect("/projects");
 }
 
 /** How a dropped episode should run, overriding the file's own `automation` block. */

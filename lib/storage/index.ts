@@ -20,6 +20,8 @@ export interface Storage {
   /** Size in bytes, or null when the object does not exist. */
   head(key: string): Promise<number | null>;
   delete(key: string): Promise<void>;
+  /** Deletes every object whose key starts with `prefix`; returns how many were removed. */
+  deletePrefix(prefix: string): Promise<number>;
 }
 
 const globalForStorage = globalThis as unknown as { __slideshowStorage?: Storage };
@@ -35,4 +37,10 @@ export function getStorage(): Storage {
 export function projectObjectKey(projectId: string, name: string): string {
   const safe = name.replace(/[^a-zA-Z0-9._/-]/g, "_").replace(/\.\.+/g, ".");
   return `${env.storagePrefix}projects/${projectId}/${safe}`;
+}
+
+/** Folder holding every object of one project. Refuses ids that could widen the prefix. */
+export function projectObjectPrefix(projectId: string): string {
+  if (!/^prj_[A-Za-z0-9_-]+$/.test(projectId)) throw new Error("Invalid project id.");
+  return `${env.storagePrefix}projects/${projectId}/`;
 }
