@@ -153,6 +153,21 @@ function crossFieldChecks(ep: Episode, issues: IssueCollector, now: Date) {
     );
   };
 
+  ep.style_bible.reference_assets.forEach((r, ri) => {
+    let host = "";
+    try {
+      host = new URL(r.asset_url_or_path).hostname.toLowerCase();
+    } catch {
+      return;
+    }
+    if (/(^|\.)example\.(com|org|net)$/.test(host) || host === "localhost") {
+      issues.error(
+        ["style_bible", "reference_assets", ri, "asset_url_or_path"],
+        `Reference "${r.id}" points at a placeholder address (${host}). Use a real image URL or remove the reference.`,
+      );
+    }
+  });
+
   ep.style_bible.characters.forEach((c, ci) => {
     c.reference_image_ids.forEach((rid, ri) => {
       if (!referenceIds.has(rid)) {

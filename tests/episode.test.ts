@@ -60,6 +60,13 @@ describe("schema errors", () => {
     expect(messages).toMatch(/infographic needs a "remotion" block/);
   });
 
+  it("rejects placeholder reference image URLs", () => {
+    const ep = minimal();
+    ep.style_bible.reference_assets = [{ id: "ref_1", description: "front", asset_url_or_path: "https://example.com/a.png" }];
+    ep.style_bible.characters[0].reference_image_ids = ["ref_1"];
+    expect(validate(ep).errors.map((e) => e.message).join("\n")).toMatch(/placeholder address/);
+  });
+
   it("requires reuse_image to point at an earlier segment", () => {
     const ep = minimal();
     ep.segments[1] = { id: "seg_002", order: 2, type: "reuse_image", narration: "Hi.", image: { reuse_from_segment_id: "seg_003" } };
@@ -180,11 +187,25 @@ describe("prompt assembly", () => {
     expect(seg5.final_prompt).toContain("Shot: medium.");
     expect(seg5.final_prompt).toMatch(/Scene: Inez asleep under a tilted solar panel.*\.$/);
     expect(seg5.final_prompt).not.toContain("\n");
-    expect(seg5.reference_image_urls).toEqual([
-      "https://example.com/refs/inez_front.png",
-      "https://example.com/refs/protagonist_front.png",
-    ]);
+    expect(seg5.reference_image_urls).toEqual([]);
     expect(seg5.output_filename).toBe("seg_005.png");
+  });
+
+  it("passes character reference URLs to the image items", () => {
+    const raw = JSON.parse(fixture("full_example.json"));
+    raw.style_bible.reference_assets = [
+      { id: "protagonist_ref_1", description: "front", asset_url_or_path: "https://cdn.refs.test/protagonist_front.png" },
+      { id: "inez_ref_1", description: "front", asset_url_or_path: "https://cdn.refs.test/inez_front.png" },
+    ];
+    raw.style_bible.characters[0].reference_image_ids = ["protagonist_ref_1"];
+    raw.style_bible.characters[1].reference_image_ids = ["inez_ref_1"];
+    const result = validate(raw);
+    expect(result.errors).toEqual([]);
+    const seg5 = buildImageItems(result.episode!).find((i) => i.segment_id === "seg_005")!;
+    expect(seg5.reference_image_urls).toEqual([
+      "https://cdn.refs.test/inez_front.png",
+      "https://cdn.refs.test/protagonist_front.png",
+    ]);
   });
 
   it("merges negative prompts", () => {

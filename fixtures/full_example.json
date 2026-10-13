@@ -30,13 +30,13 @@
         "id": "protagonist",
         "name": "You",
         "visual_description": "a stick figure with a round white head, small dot eyes, a mustard yellow knitted beanie and a long grey scarf",
-        "reference_image_ids": ["protagonist_ref_1"]
+        "reference_image_ids": []
       },
       {
         "id": "inez",
         "name": "Inez",
         "visual_description": "an older woman with short white hair, round red glasses, a blue headband and a long brown cardigan",
-        "reference_image_ids": ["inez_ref_1"]
+        "reference_image_ids": []
       },
       {
         "id": "zombies",
@@ -45,18 +45,7 @@
         "reference_image_ids": []
       }
     ],
-    "reference_assets": [
-      {
-        "id": "protagonist_ref_1",
-        "description": "Front view of the protagonist on a plain background",
-        "asset_url_or_path": "https://example.com/refs/protagonist_front.png"
-      },
-      {
-        "id": "inez_ref_1",
-        "description": "Front view of Inez on a plain background",
-        "asset_url_or_path": "https://example.com/refs/inez_front.png"
-      }
-    ]
+    "reference_assets": []
   },
   "voice": {
     "provider": "fish_audio",
