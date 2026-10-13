@@ -44,7 +44,7 @@ export const projects = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("projects_series_idx").on(t.seriesId, t.episodeNumber)],
-);
+).enableRLS();
 
 export const segments = pgTable(
   "segments",
@@ -67,7 +67,7 @@ export const segments = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.segmentId] })],
-);
+).enableRLS();
 
 export const assets = pgTable(
   "assets",
@@ -93,7 +93,7 @@ export const assets = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("assets_project_key_idx").on(t.projectId, t.assetKey, t.status)],
-);
+).enableRLS();
 
 export const tasks = pgTable(
   "tasks",
@@ -133,7 +133,7 @@ export const tasks = pgTable(
     index("tasks_queue_idx").on(t.kind, t.status, t.availableAt),
     index("tasks_project_idx").on(t.projectId, t.type, t.scope),
   ],
-);
+).enableRLS();
 
 export const taskEvents = pgTable(
   "task_events",
@@ -149,7 +149,7 @@ export const taskEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("task_events_project_idx").on(t.projectId, t.createdAt)],
-);
+).enableRLS();
 
 /** One row per SFX cue: the ranked candidates and which one is in use. */
 export const sfxCues = pgTable(
@@ -165,7 +165,7 @@ export const sfxCues = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.cueId] })],
-);
+).enableRLS();
 
 /** Clip metadata shared across projects (licence + credit), keyed by provider:source_id. */
 export const sfxCache = pgTable("sfx_cache", {
@@ -181,7 +181,7 @@ export const sfxCache = pgTable("sfx_cache", {
   durationSec: doublePrecision("duration_sec"),
   meta: jsonb("meta").notNull().default(sql`'{}'::jsonb`),
   createdAt: createdAt(),
-});
+}).enableRLS();
 
 /** Generic key/value cache with expiry (provider lookups, signed URL memo, etc.). */
 export const apiCache = pgTable("api_cache", {
@@ -189,7 +189,7 @@ export const apiCache = pgTable("api_cache", {
   value: jsonb("value").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdAt: createdAt(),
-});
+}).enableRLS();
 
 export const apiTokens = pgTable(
   "api_tokens",
@@ -205,7 +205,7 @@ export const apiTokens = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("api_tokens_hash_idx").on(t.tokenHash)],
-);
+).enableRLS();
 
 /** Last-seen heartbeat per worker / bot client. */
 export const agents = pgTable("agents", {
@@ -213,7 +213,7 @@ export const agents = pgTable("agents", {
   role: text("role").notNull(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   info: jsonb("info").notNull().default(sql`'{}'::jsonb`),
-});
+}).enableRLS();
 
 export const usageEvents = pgTable(
   "usage_events",
@@ -227,7 +227,7 @@ export const usageEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("usage_provider_idx").on(t.provider, t.createdAt)],
-);
+).enableRLS();
 
 export type ProjectRow = typeof projects.$inferSelect;
 export type SegmentRow = typeof segments.$inferSelect;

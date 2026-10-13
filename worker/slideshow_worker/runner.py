@@ -115,6 +115,7 @@ def run(config: Config, *, once: bool = False) -> int:
 
     log.info("worker %s polling %s for %s (dry_run=%s, concurrency=%d)",
              config.agent_id, config.base_url, ",".join(types), config.dry_run, config.concurrency)
+    idle_wait = config.poll_interval_sec
     while not stop.is_set():
         slots.acquire()
         if stop.is_set():
@@ -134,8 +135,11 @@ def run(config: Config, *, once: bool = False) -> int:
             slots.release()
             if once and not any(t.is_alive() for t in threads):
                 break
-            stop.wait(config.poll_interval_sec)
+            # Each claim is a serverless invocation; back off while idle to stay inside plan quotas.
+            stop.wait(idle_wait)
+            idle_wait = min(idle_wait * 1.5, max(config.poll_max_interval_sec, config.poll_interval_sec))
             continue
+        idle_wait = config.poll_interval_sec
         t = threading.Thread(target=work, args=(task,), daemon=True, name=f"task-{task['task_id'][:8]}")
         threads.append(t)
         t.start()

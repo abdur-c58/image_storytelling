@@ -60,6 +60,7 @@ class Config:
     elevenlabs_enabled: bool
     local_sfx_index: Path
     poll_interval_sec: float
+    poll_max_interval_sec: float
     concurrency: int
     types: tuple[str, ...] = field(default_factory=tuple)
     keep_failed_work: bool = False
@@ -100,6 +101,7 @@ def load_config() -> Config:
         elevenlabs_enabled=_flag("ELEVENLABS_SFX_ENABLED") and bool(_str("ELEVENLABS_API_KEY")),
         local_sfx_index=_path("LOCAL_SFX_INDEX", WORKER_DIR / "sfx_library.sqlite"),
         poll_interval_sec=float(_str("POLL_INTERVAL_SEC", "5")),
+        poll_max_interval_sec=float(_str("POLL_MAX_INTERVAL_SEC", "60")),
         concurrency=max(1, int(_str("WORKER_CONCURRENCY", "2"))),
         types=types,
         keep_failed_work=_flag("KEEP_FAILED_WORK"),
