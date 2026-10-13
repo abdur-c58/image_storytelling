@@ -43,8 +43,7 @@ Stages run as soon as their inputs exist, so several can be active at once; the 
 | `lib/episode/` | Zod schema (source of truth), validator with line/column errors, prompt assembly. JSON Schema export in `schema/episode.schema.json`. |
 | `lib/pipeline/` | State machine (`advance.ts`), task payloads, completion handling, description/chapters/credits. |
 | `drizzle/` | SQL migrations. |
-| `worker/` | Python worker (`python -m slideshow_worker`). |
-| `remotion/` | Card templates, icons, thumbnail composition (stills, fonts bundled). |
+| `../story-telling-worker/` | Not in this repo. Python worker (`python -m slideshow_worker`) and its `remotion/` project (card templates, icons, thumbnail composition). Runs on the GPU PC; never deployed to Vercel. |
 | `bot/RUNBOOK.md` | Instructions for the Grok bot (served at `/api/bot/runbook`). |
 | `scripts/fake-bot.ts` | Stand-in bot for testing (placeholder images, fake YouTube URL). |
 | `scripts/e2e-dry-run.ts` | Full end-to-end test. |
@@ -53,12 +52,12 @@ Stages run as soon as their inputs exist, so several can be active at once; the 
 
 ## Local development
 
-Requirements: Node 24, Python 3.12, ffmpeg/ffprobe on `PATH`, the existing server checked out next to this repo (`../server`).
+Requirements: Node 24, Python 3.12, ffmpeg/ffprobe on `PATH`, and two folders next to this repo: the existing server (`../server`) and the worker (`../story-telling-worker`).
 
 ```powershell
 npm install
-cd remotion; npm install; cd ..
-pip install -r worker/requirements.txt      # plus openai-whisper for real alignment
+cd ..\story-telling-worker\remotion; npm install; cd ..\..\slideshow_storytelling
+pip install -r ..\story-telling-worker\requirements.txt   # plus openai-whisper for real alignment
 copy .env.example .env.local                # everything can stay empty for local dev
 npm run dev                                 # http://localhost:3000 (PGlite + local storage)
 ```
@@ -98,7 +97,7 @@ npm run e2e
 
 3. **Vercel**: import the repo, set the variables from `.env.example` (`SESSION_SECRET`, `ADMIN_PASSWORD`, `APP_BASE_URL`, `CRON_SECRET`, database and R2). `vercel.json` schedules `/api/cron/maintenance` daily (expired leases, intermediate clean-up).
 4. **Tokens**: sign in, open **Settings → Tokens**, create one `worker` token and one `bot` token. They are shown once and stored hashed. Revoke and recreate to rotate.
-5. **Worker** (GPU PC): `copy worker\.env.example worker\.env`, fill `APP_BASE_URL` and `WORKER_TOKEN`, then:
+5. **Worker** (GPU PC, `..\story-telling-worker`): copy its `.env.example` to `.env`, fill `APP_BASE_URL` and `WORKER_TOKEN`, then (from this repo, or `python -m slideshow_worker selfcheck|run` inside the worker folder):
 
    ```powershell
    npm run worker:selfcheck   # tools, server imports, which keys are set (never their values)

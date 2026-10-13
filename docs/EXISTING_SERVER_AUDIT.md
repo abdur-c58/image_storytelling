@@ -66,21 +66,21 @@ All of these import cleanly from `viewer/backend` in ~0.2 s with no side effects
 2. **Vercel constraints for the new site.** No persistent disk (so no local SQLite file), ~4.5 MB request body limit on serverless functions, function time limits. Consequence: DB must be hosted (chosen: Supabase Postgres), and large files (images, MP4) must go **directly to R2 via presigned PUT URLs**, not through the Next.js function.
 3. **Whisper is `openai-whisper`** (slower than faster-whisper, fine on the RTX 5070). Per-segment transcription would reload/re-run many times; plan is one pass over the concatenated voice track, then split words by known segment offsets.
 4. **Fish Audio defaults.** Existing payload hard-codes `format: "mp3"`, 128 kbps, `normalize_loudness: true`. Acceptable as a source but we will request a higher bitrate (or WAV if confirmed in current docs) and re-normalise with `loudnorm` ourselves. Model `drama-3-preview` is a *preview* model name; verify it is still valid at build time.
-5. **Coupling by import path.** The worker imports `viewer/backend` via `SERVER_DIR` on `sys.path`. Renames in the server would break the worker; mitigated by a thin adapter module (`worker/legacy.py`) as the only import point, plus a startup self-check.
+5. **Coupling by import path.** The worker imports `viewer/backend` via `SERVER_DIR` on `sys.path`. Renames in the server would break the worker; mitigated by a thin adapter module (`slideshow_worker/legacy.py`) as the only import point, plus a startup self-check.
 6. **Disk usage.** `viewer/backend/workspace` holds multi-GB B-roll caches; the new worker gets its own work dir with retention rules.
 7. **Export path conventions** (`Documents/ExportedVids/<channel>/exported/`) are B-roll specific; the new pipeline writes to its own work dir and R2.
 
 ## 5. Decision: how the new system attaches to the server
 
 - **New website** = the Next.js app in `slideshow_storytelling/` (already scaffolded, Next 16.4). Separate from Billions so nothing there changes.
-- **New worker** = a **Python** process in `slideshow_storytelling/worker/` that polls the website (outbound HTTPS only) and **imports** the server modules listed in section 2 through one adapter. Python matches the existing Whisper/torch/ffmpeg code.
-- **New Remotion project** in `slideshow_storytelling/remotion/` for cards and thumbnails (stills), so the existing `FactCard`/`TitleCard` project is untouched.
+- **New worker** = a **Python** process in `story-telling-worker/` (next to this repo, not inside it) that polls the website (outbound HTTPS only) and **imports** the server modules listed in section 2 through one adapter. Python matches the existing Whisper/torch/ffmpeg code.
+- **New Remotion project** in `story-telling-worker/remotion/` for cards and thumbnails (stills), so the existing `FactCard`/`TitleCard` project is untouched.
 - **Changes to the existing server: none.** If a change becomes necessary it will be the smallest possible and recorded here.
 
 ## 6. As built (update after implementation)
 
 - **Hosting:** site on Vercel, Postgres on Supabase (Drizzle over postgres-js with `prepare: false` for the transaction pooler), files in the existing R2 bucket under `slideshow-storytelling/`. Large files go straight to R2 with presigned PUT/GET URLs; the site never proxies video bytes.
-- **Server changes: still none.** The worker imports only what `worker/slideshow_worker/legacy.py` lists (`fish_audio_tts`, `segment_timestamps`, `script_format`, `export_video`, `hardware_monitor`) and checks them at startup (`python -m slideshow_worker selfcheck`). It loads the server's `.env.local` into its own process environment (variables already set win); values are never logged, and the site only ever receives a set/not-set flag per key name.
+- **Server changes: still none.** The worker imports only what `story-telling-worker/slideshow_worker/legacy.py` lists (`fish_audio_tts`, `segment_timestamps`, `script_format`, `export_video`, `hardware_monitor`) and checks them at startup (`python -m slideshow_worker selfcheck`). It loads the server's `.env.local` into its own process environment (variables already set win); values are never logged, and the site only ever receives a set/not-set flag per key name.
 - **Encoder:** the server's `detect_encoder` picks NVENC/AMF/QSV when ffmpeg lists them. The worker additionally test-encodes 5 frames once and falls back to libx264 if the listed GPU encoder doesn't work.
 - **Whisper:** `transcribe_audio` loads the model on every call, so the worker transcribes the whole episode's narration once (segments joined with 0.8 s gaps) and splits the words back by offset.
 - **Not reused:** the server's automation watchdog, JSON job files, Cloudflare tunnel and publish queue. The new site/worker/bot talk over outbound HTTPS polling only.

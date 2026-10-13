@@ -9,14 +9,14 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "test:worker": "python -m unittest discover -s worker/tests",
+    "test:worker": "cd ../story-telling-worker && python -m unittest discover -s tests",
     "e2e": "tsx scripts/e2e-dry-run.ts",
     "schema:export": "tsx scripts/export-schema.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "fake-bot": "tsx scripts/fake-bot.ts",
-    "worker": "cd worker && python -m slideshow_worker run",
-    "worker:selfcheck": "cd worker && python -m slideshow_worker selfcheck"
+    "worker": "cd ../story-telling-worker && python -m slideshow_worker run",
+    "worker:selfcheck": "cd ../story-telling-worker && python -m slideshow_worker selfcheck"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1149.0",

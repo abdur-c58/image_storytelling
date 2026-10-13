@@ -1,5 +1,5 @@
 /**
- * Phrase normalisation shared with the Python worker (worker/slideshow_worker/text.py).
+ * Phrase normalisation shared with the Python worker (story-telling-worker/slideshow_worker/text.py).
  * Keep both implementations identical: lowercase, unify quotes, drop punctuation
  * except in-word apostrophes, collapse whitespace.
  */

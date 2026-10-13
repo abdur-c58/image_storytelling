@@ -15,9 +15,6 @@ const eslintConfig = defineConfig([
     ".next-e2e/**",
     ".next-*/**",
     ".data/**",
-    "worker/**",
-    "remotion/out/**",
-    "remotion/build/**",
   ]),
 ]);
 

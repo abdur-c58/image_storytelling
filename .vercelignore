@@ -1,5 +1,2 @@
-# Runs on the GPU PC, not on Vercel. The site only talks to it over HTTPS.
-worker/
-remotion/
 .data/
 .next-*/

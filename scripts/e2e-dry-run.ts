@@ -5,11 +5,12 @@
  *
  * Starts `next dev` on a throwaway PGlite database and local storage, the fake bot and the Python
  * worker with DRY_RUN=1 (no Fish Audio, Whisper, Openverse or YouTube calls). Needs ffmpeg/ffprobe,
- * node, python and `npm install` in remotion/.
+ * node, python and `npm install` in the worker's remotion/ folder. The worker lives in
+ * ../story-telling-worker (override with STORY_WORKER_DIR).
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -23,6 +24,7 @@ const fixture = positional[0] ?? path.join(root, "fixtures", "minimal_3_segments
 const allFeatures = process.argv.includes("--all-features");
 const timeoutMin = Number(process.env.E2E_TIMEOUT_MIN ?? 20);
 const python = process.env.PYTHON ?? "python";
+const workerDir = path.resolve(process.env.STORY_WORKER_DIR ?? path.join(root, "..", "story-telling-worker"));
 const password = randomBytes(12).toString("hex");
 const botToken = `bot_${randomBytes(24).toString("hex")}`;
 const workerToken = `wkr_${randomBytes(24).toString("hex")}`;
@@ -95,6 +97,9 @@ function findFiles(dir: string, test: (p: string) => boolean, out: string[] = []
 }
 
 async function main() {
+  if (!existsSync(path.join(workerDir, "slideshow_worker"))) {
+    throw new Error(`worker not found in ${workerDir}; set STORY_WORKER_DIR`);
+  }
   mkdirSync(storageDir, { recursive: true });
   const siteEnv = {
     DATABASE_URL: `pglite:${path.join(runDir, "pglite")}`,
@@ -137,9 +142,10 @@ async function main() {
     WORKER_AGENT_ID: "e2e-worker",
     DRY_RUN: "1",
     POLL_INTERVAL_SEC: "2",
+    POLL_MAX_INTERVAL_SEC: "2",
     WORK_DIR: path.join(runDir, "worker"),
     PYTHONUNBUFFERED: "1",
-  }, path.join(root, "worker"));
+  }, workerDir);
 
   const deadline = Date.now() + timeoutMin * 60_000;
   let last = "";

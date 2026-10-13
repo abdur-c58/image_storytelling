@@ -54,7 +54,7 @@ export const YOUTUBE_CATEGORIES: Record<string, number> = {
   "Nonprofits & Activism": 29,
 };
 
-/** Icon names shipped in remotion/src/icons. Unknown names render a generic circle + label (warning). */
+/** Icon names shipped in story-telling-worker/remotion/src/icons. Unknown names render a generic circle + label (warning). */
 export const KNOWN_ICONS = [
   "water_jug",
   "can",
