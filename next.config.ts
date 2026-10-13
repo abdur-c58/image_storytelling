@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@electric-sql/pglite", "sharp"],
   outputFileTracingIncludes: {
     "/api/bot/runbook": ["./bot/RUNBOOK.md"],
+    "/new": ["./fixtures/*.json"],
     "/*": ["./drizzle/**/*"],
   },
   turbopack: {

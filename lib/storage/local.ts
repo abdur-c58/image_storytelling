@@ -15,7 +15,7 @@ export interface LocalGrant {
 /** Dev driver: files on disk, served by /api/storage/local with HMAC-signed, expiring URLs. */
 export class LocalStorage implements Storage {
   readonly driver = "local" as const;
-  private root = path.resolve(process.cwd(), env.localStorageDir);
+  private root = path.resolve(/* turbopackIgnore: true */ process.cwd(), env.localStorageDir);
 
   pathFor(key: string): string {
     const resolved = path.resolve(this.root, key);
