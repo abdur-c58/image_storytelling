@@ -179,34 +179,46 @@ export async function advance(db: Db, projectId: string): Promise<void> {
 
     // A dead task stops only its own stage and whatever needs its output; independent stages keep going.
     const deadKinds = new Set(dead.map((t) => (isThumbnailImageTask(t) ? "thumbnail_images" : t.type)));
+    const imagesGivenUp: string[] = [];
 
     if (!failure) {
       // ── Images (bot) ─────────────────────────────────────────────
       const segImageTasks = ofType("generate_images").filter((t) => !isThumbnailImageTask(t));
       const missingImages = req.images.filter((id) => !has(assetKeys.image(id)));
-      if (missingImages.length && !segImageTasks.some(isActive) && !deadKinds.has("generate_images")) {
+      // Segments a running batch already covers wait for it; anything else missing is (re)requested now, so
+      // gaps left by a finished batch do not wait for unrelated batches still in progress.
+      const inFlight = new Set(
+        segImageTasks.filter(isActive).flatMap((t) => ((t.payload as { items?: { segment_id: string }[] }).items ?? []).map((i) => i.segment_id)),
+      );
+      const pending = missingImages.filter((id) => !inFlight.has(id));
+      if (pending.length && !deadKinds.has("generate_images")) {
         const imgTrigger = trigger(ep, "generate_images");
-        const wanted = buildImageItems(ep).filter((i) => missingImages.includes(i.segment_id));
+        const wanted = buildImageItems(ep).filter((i) => pending.includes(i.segment_id));
         for (const item of wanted) for (const k of waitsOn(item)) waitingFor.add(k);
-        // Segments whose masters are all approved go now; the rest follow as their masters are approved.
-        const items = wanted.filter((i) => waitsOn(i).length === 0);
         const askedBefore = new Set(
           segImageTasks.flatMap((t) => ((t.payload as { items?: { segment_id: string }[] }).items ?? []).map((i) => i.segment_id)),
         );
+        // A segment gives up on its own after its last attempt; the other segments carry on.
+        const attemptsOf = new Map(
+          (
+            await tx
+              .select({ id: segments.segmentId, n: segments.imageAttempts })
+              .from(segments)
+              .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, pending)))
+          ).map((r) => [r.id, r.n]),
+        );
+        const spent = (id: string) => askedBefore.has(id) && (attemptsOf.get(id) ?? 0) >= env.maxImageAttempts - 1;
+        imagesGivenUp.push(...pending.filter(spent));
+        // Segments whose masters are all approved go now; the rest follow as their masters are approved.
+        const items = wanted.filter((i) => waitsOn(i).length === 0 && !spent(i.segment_id));
         const retried = items.filter((i) => askedBefore.has(i.segment_id)).map((i) => i.segment_id);
         if (retried.length) {
           await tx
             .update(segments)
             .set({ imageAttempts: sql`${segments.imageAttempts} + 1` })
             .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, retried)));
-          const rows = await tx
-            .select()
-            .from(segments)
-            .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, retried)));
-          const exhausted = rows.filter((r) => r.imageAttempts >= env.maxImageAttempts).map((r) => r.segmentId);
-          if (exhausted.length) failure = `Images still missing after ${env.maxImageAttempts} attempts: ${exhausted.join(", ")}.`;
         }
-        if (!failure) {
+        {
           const batches = chunk(items, imgTrigger?.batch_size ?? 8);
           const round = segImageTasks.length ? String(segImageTasks.length) : "";
           for (const [i, batch] of batches.entries()) {
@@ -218,6 +230,8 @@ export async function advance(db: Db, projectId: string): Promise<void> {
                 scope: `${retried.length ? "retry" : "batch"}${round}:${String(i + 1).padStart(2, "0")}`,
                 payload: imageTaskPayload(projectId, ep, batch, "segments"),
                 priority: retried.length ? 15 : 10,
+                // A short pause before a retry: missing images are often the generator refusing or rate-limiting.
+                availableAt: retried.length ? new Date(Date.now() + (imgTrigger?.retry.backoff_sec ?? 60) * 1000) : undefined,
                 maxAttempts: imgTrigger?.retry.max_attempts ?? 3,
                 backoffSec: imgTrigger?.retry.backoff_sec ?? 60,
                 timeoutMinutes: imgTrigger?.timeout_minutes ?? 180,
@@ -334,7 +348,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const activeTypes = new Set(allTasks.filter(isActive).map((t) => t.type));
       let state: ProjectState;
       if (project.publishedAt) state = "PUBLISHED";
-      else if (failure || dead.length) state = "FAILED";
+      else if (failure || dead.length || imagesGivenUp.length) state = "FAILED";
       else if (activeTypes.has("upload_youtube")) state = "PUBLISH_REQUESTED";
       else if (waiting) state = "REVIEW";
       else if (waitingFor.size && missingImages.length) state = "WAITING_MASTERS";
@@ -350,7 +364,17 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const deadSummary = dead.map((t) => `${t.type}(${t.scope}): ${t.error ?? "failed"}`).join("; ");
       const detail =
         failure ??
-        (dead.length ? `Dead-lettered: ${deadSummary}. Press Retry failed; stages that do not need it keep going.` : null) ??
+        (dead.length || imagesGivenUp.length
+          ? [
+              dead.length ? `Dead-lettered: ${deadSummary}.` : "",
+              imagesGivenUp.length
+                ? `Images still missing after ${env.maxImageAttempts} attempts: ${imagesGivenUp.join(", ")} (see the bot notes in the log; fix the prompt or press Regenerate).`
+                : "",
+              "Press Retry failed to try again; everything else keeps going.",
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : null) ??
         waiting ??
         [
           waitingFor.size ? `waiting for ${waitingFor.size} story master(s) to be approved` : "",

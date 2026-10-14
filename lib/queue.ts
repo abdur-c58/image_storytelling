@@ -223,7 +223,13 @@ export async function completeTask(db: Db, taskId: string, leaseId: string, resu
     })
     .where(eq(tasks.id, taskId))
     .returning();
-  await logEvent(db, ownerOf(task), taskId, "info", `Task ${task.type} completed.`);
+  const r = (result ?? {}) as { missing?: unknown; notes?: unknown };
+  const missing = Array.isArray(r.missing) ? r.missing.filter((m): m is string => typeof m === "string") : [];
+  const notes = typeof r.notes === "string" ? r.notes.trim().slice(0, 1000) : "";
+  const summary = [missing.length ? `${missing.length} not delivered (${missing.join(", ")}); they will be requested again.` : "", notes ? `Bot notes: ${notes}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  await logEvent(db, ownerOf(task), taskId, missing.length ? "warning" : "info", `Task ${task.type} completed.${summary ? ` ${summary}` : ""}`);
   return row;
 }
 

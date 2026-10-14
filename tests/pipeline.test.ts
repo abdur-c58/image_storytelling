@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
 process.env.DATABASE_URL = "pglite:memory://";
@@ -167,6 +167,8 @@ async function drain(
 ): Promise<string[]> {
   const seen: string[] = [];
   for (let i = 0; i < (opts.maxSteps ?? 200); i++) {
+    // Retry pauses are real time; tests do not wait for them.
+    await db.update(tasks).set({ availableAt: new Date(0) }).where(eq(tasks.status, "queued"));
     const task = (await leaseNext(db, "worker", "test-worker", 60, opts.types)) ?? (await leaseNext(db, "bot", "test-bot", 60, opts.types));
     if (!task) break;
     seen.push(task.type);
@@ -233,13 +235,38 @@ describe("pipeline state machine", () => {
     expect((await project(id)).state).toBe("PUBLISHED");
   });
 
+  it("re-requests a finished batch's missing images while another batch is still running", async () => {
+    await clearQueue();
+    const id = await makeProject(fullRaw());
+    const [batch] = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.scope, "batch:01"))));
+    const [segX, segY] = (batch.payload as { items: ImageItem[] }).items.map((i) => i.segment_id);
+    await regenerateImage(db, id, segY);
+    await db.update(tasks).set({ status: "leased" }).where(and(eq(tasks.projectId, id), like(tasks.scope, "regen:%")));
+
+    const task = (await leaseNext(db, "bot", "test-bot", 60, ["generate_images"]))!;
+    expect(task.scope).toBe("batch:01");
+    const result = await fulfil(task, { skipImages: [segX] });
+    await completeTask(db, task.id, task.leaseId!, result);
+    await onTaskCompleted(db, task, result);
+    await advance(db, id);
+
+    const retry = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.status, "queued")))).filter((t) =>
+      t.scope.startsWith("retry"),
+    );
+    expect(retry.flatMap((t) => (t.payload as { items: ImageItem[] }).items.map((i) => i.segment_id))).toEqual([segX]);
+    await db.update(tasks).set({ status: "cancelled" }).where(and(eq(tasks.projectId, id), like(tasks.scope, "regen:%")));
+  });
+
   it("retries only missing images and fails after the attempt limit", async () => {
     await clearQueue();
     const id = await makeProject(fullRaw());
     await drain(id, { skipImages: ["seg_006"] });
     const p = await project(id);
     expect(p.state).toBe("FAILED");
-    expect(p.error).toMatch(/seg_006/);
+    expect(p.stateDetail).toMatch(/Images still missing after 3 attempts: seg_006/);
+    // Everything that does not need seg_006 still ran.
+    const types = new Set((await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.status, "done")))).map((t) => t.type));
+    for (const t of ["voice", "align", "mix", "cards"]) expect(types.has(t)).toBe(true);
     const imageTasks = (await db.select().from(tasks).where(eq(tasks.projectId, id))).filter(
       (t) => t.type === "generate_images" && t.scope.startsWith("retry"),
     );
