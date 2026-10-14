@@ -250,6 +250,25 @@ function EpisodeRow({ storyId, e, runtime }: { storyId: string; e: EpisodeListIt
   );
 }
 
+type TaskRow = typeof tasks.$inferSelect;
+
+/** What the cast table says under "Test voice" while a test is pending or after it failed. */
+function voiceTestStatus(task: TaskRow | undefined, lastSample: Date | null, now = new Date()): CastView["sampleStatus"] {
+  if (!task) return null;
+  if (task.status === "leased") return { tone: "info", text: "Recording the test line…" };
+  if (task.status === "queued") {
+    if (task.error) return { tone: "bad", text: `Retrying after an error: ${task.error}` };
+    const waitedMin = (now.getTime() - task.createdAt.getTime()) / 60_000;
+    return waitedMin > 1
+      ? { tone: "muted", text: "Still queued after a minute. Is the worker running on your PC?" }
+      : { tone: "muted", text: "Queued: waiting for the worker to pick it up…" };
+  }
+  if (task.status === "dead" && (!lastSample || lastSample < task.updatedAt)) {
+    return { tone: "bad", text: `Voice test failed: ${task.error ?? "no error message"}` };
+  }
+  return null;
+}
+
 async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRows: (typeof tasks.$inferSelect)[]; deleted: boolean }) {
   const storyId = story.id;
   if (!story.bible) {
@@ -313,11 +332,21 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
     }),
   );
   const sampleUrls = new Map<string, string>();
+  const sampleAt = new Map<string, Date>();
   for (const a of candidateRows) {
     if (!a.assetKey.startsWith("voice_sample/")) continue;
     const speaker = a.assetKey.slice("voice_sample/".length);
-    if (!sampleUrls.has(speaker)) sampleUrls.set(speaker, await presignAssetGet(a, base));
+    if (!sampleUrls.has(speaker)) {
+      sampleUrls.set(speaker, await presignAssetGet(a, base));
+      sampleAt.set(speaker, a.createdAt);
+    }
   }
+  const sampleTasks = new Map<string, TaskRow>();
+  for (const t of taskRows) {
+    const speaker = (t.payload as { speaker?: unknown }).speaker;
+    if (t.type === "voice_sample" && typeof speaker === "string" && !sampleTasks.has(speaker)) sampleTasks.set(speaker, t);
+  }
+  const sampleStatus = (speaker: string) => voiceTestStatus(sampleTasks.get(speaker), sampleAt.get(speaker) ?? null);
   const thumbOf = (key: string) => {
     const m = masters.find((x) => x.key === key);
     const c = m?.candidates.find((x) => x.id === m.approvedAssetId) ?? m?.candidates[0];
@@ -343,6 +372,7 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
       voiceGroup: null,
       canSpeak: true,
       sampleUrl: sampleUrls.get(NARRATOR) ?? null,
+      sampleStatus: sampleStatus(NARRATOR),
       sheets: [],
     },
     ...bible.characters.map((c) => ({
@@ -356,6 +386,7 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
       voiceGroup: c.voice_group,
       canSpeak: !!c.voice,
       sampleUrl: sampleUrls.get(c.id) ?? null,
+      sampleStatus: sampleStatus(c.id),
       sheets: [
         ...c.outfit_states.map((o) => thumbOf(`char/${c.id}/${o.id}`)),
         ...(bible.character_groups ?? []).filter((g) => g.character_ids.includes(c.id)).map((g) => thumbOf(`group/${g.id}`)),
