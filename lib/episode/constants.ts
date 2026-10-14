@@ -1,7 +1,14 @@
-export const SCHEMA_VERSION = "2.2";
-/** 2.1 and 2.2 only add optional fields, so older 2.x documents are still accepted. */
-export const SUPPORTED_SCHEMA_VERSIONS = ["2.0", "2.1", "2.2"] as const;
-/** Segment roles (2.2). Structure rules apply to 2.2 episodes only. */
+export const SCHEMA_VERSION = "2.3";
+/** 2.1–2.3 only add fields, so older 2.x documents are still accepted. */
+export const SUPPORTED_SCHEMA_VERSIONS = ["2.0", "2.1", "2.2", "2.3"] as const;
+/** True for "2.2" and later when min is "2.2". */
+export function schemaAtLeast(version: string | undefined, min: string): boolean {
+  if (!version) return false;
+  const [a = 0, b = 0] = version.split(".").map(Number);
+  const [c = 0, d = 0] = min.split(".").map(Number);
+  return a > c || (a === c && b >= d);
+}
+/** Segment roles (2.2). Structure rules apply to 2.2+ episodes only. */
 export const SEGMENT_ROLES = ["cold_open", "recap", "status_board", "main", "cliffhanger", "end_card"] as const;
 /** Default chapter titles for role-derived chapters ("main" uses the episode's short title). */
 export const ROLE_CHAPTER_TITLES: Record<string, string> = {

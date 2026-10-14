@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   doublePrecision,
@@ -17,26 +18,73 @@ import {
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
-/** One per story bible (schema 2.0). Episodes (projects) point at it. */
+/** A story folder (schema 2.3): one bible, many episodes. Created from a bible or empty by hand. */
 export const stories = pgTable("stories", {
-  /** The bible's story_id. */
+  /** The bible's story_id: a slug, never changed after creation. */
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  /** STORY_VALIDATED | LOCATION_MASTERS_REQUESTED | MASTERS_REVIEW | MASTERS_APPROVED */
+  description: text("description").notNull().default(""),
+  /** NO_BIBLE | STORY_VALIDATED | LOCATION_MASTERS_REQUESTED | MASTERS_REVIEW | MASTERS_APPROVED */
   state: text("state").notNull(),
   stateDetail: text("state_detail").notNull().default(""),
-  /** Parsed story bible (defaults applied). */
-  bible: jsonb("bible").notNull(),
-  rawJson: text("raw_json").notNull(),
-  /** { current, by_episode, committed_through_episode } — see lib/episode/continuity.ts */
-  storyState: jsonb("story_state").notNull(),
+  /** active | archived | deleted (soft delete, purged after 30 days) */
+  status: text("status").notNull().default("active"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  /** Parsed story bible (defaults applied); null until a bible is added to an empty folder. */
+  bible: jsonb("bible"),
+  rawJson: text("raw_json"),
+  /** Bumped on every stored change to the bible (paste, bible_additions, promotion). */
+  bibleVersion: integer("bible_version").notNull().default(0),
+  /** Cache of the active episodes' snapshots: { current, by_episode, committed_through_episode }. */
+  storyState: jsonb("story_state"),
   warnings: jsonb("warnings").notNull().default(sql`'[]'::jsonb`),
   /** speaker id → Fish voice_id entered on the Story page; wins over the bible and Settings. */
   voiceOverrides: jsonb("voice_overrides").notNull().default(sql`'{}'::jsonb`),
-  archived: boolean("archived").notNull().default(false),
+  /** Partial bible `defaults` (voice/audio/render/crop_policy/structure) set on the folder's Settings tab. */
+  defaultsOverride: jsonb("defaults_override").notNull().default(sql`'{}'::jsonb`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }).enableRLS();
+
+/** One numbered episode of a story; its versions are `projects` rows. */
+export const episodes = pgTable(
+  "episodes",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    activeVersionId: text("active_version_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
+    /** Highest version number ever given out, so a deleted version's number is never reused. */
+    versionCounter: integer("version_counter").notNull().default(0),
+    /** Created by the v2.3 migration from a project that predates story folders. */
+    migrated: boolean("migrated").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("episodes_story_number_idx").on(t.storyId, t.number)],
+).enableRLS();
+
+/** Where the story stands after one episode version (what the next episode is validated against). */
+export const storyStateSnapshots = pgTable(
+  "story_state_snapshots",
+  {
+    projectId: text("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    episodeNumber: integer("episode_number").notNull(),
+    version: integer("version").notNull(),
+    state: jsonb("state").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("snapshots_story_episode_idx").on(t.storyId, t.episodeNumber)],
+).enableRLS();
 
 /** Site-wide settings edited in the dashboard (key → JSON value). */
 export const appSettings = pgTable("app_settings", {
@@ -111,11 +159,23 @@ export const projects = pgTable(
     youtubeVideoId: text("youtube_video_id"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     error: text("error"),
+    /** Halted: inactive versions are always archived; the pipeline skips archived rows. */
     archived: boolean("archived").notNull().default(false),
+    /** Schema 2.3: each project is one version of an episode. */
+    episodeId: text("episode_id").references((): AnyPgColumn => episodes.id),
+    version: integer("version").notNull().default(1),
+    /** An earlier episode changed; this version's continuity was re-checked (see revalidation). */
+    needsRevalidation: boolean("needs_revalidation").notNull().default(false),
+    /** { checked_at, ok, errors: ValidationIssue[] } from the last automatic re-check. */
+    revalidation: jsonb("revalidation"),
+    migrated: boolean("migrated").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("projects_series_idx").on(t.seriesId, t.episodeNumber)],
+  (t) => [
+    index("projects_series_idx").on(t.seriesId, t.episodeNumber),
+    uniqueIndex("projects_episode_version_idx").on(t.episodeId, t.version),
+  ],
 ).enableRLS();
 
 export const segments = pgTable(
@@ -320,6 +380,8 @@ export const usageEvents = pgTable(
 ).enableRLS();
 
 export type StoryRow = typeof stories.$inferSelect;
+export type EpisodeRow = typeof episodes.$inferSelect;
+export type SnapshotRow = typeof storyStateSnapshots.$inferSelect;
 export type StoryMasterRow = typeof storyMasters.$inferSelect;
 export type ChannelCharacterRow = typeof channelCharacters.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;

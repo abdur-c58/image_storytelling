@@ -1,17 +1,21 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
+import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
+import { folderTree } from "@/lib/pipeline/folders";
 import { ThemeToggle } from "../theme-toggle";
 import { NavLinks } from "./nav";
+import { SidebarTree } from "./sidebar";
 
 export default async function DashLayout({ children }: LayoutProps<"/">) {
   if (!(await isAdmin())) redirect("/login");
+  const tree = await folderTree(await getDb());
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-40 border-b border-line bg-background/80 backdrop-blur-xl">
-        <nav className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
-          <Link href="/projects" className="hidden text-lg font-bold tracking-tight sm:block">
+        <nav className="mx-auto flex h-16 items-center gap-3 px-4 sm:gap-6 sm:px-6">
+          <Link href="/stories" className="hidden text-lg font-bold tracking-tight sm:block">
             Slideshow
           </Link>
           <NavLinks />
@@ -24,7 +28,10 @@ export default async function DashLayout({ children }: LayoutProps<"/">) {
           </div>
         </nav>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">{children}</main>
+      <div className="flex flex-1">
+        <SidebarTree stories={tree} />
+        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-6 py-10">{children}</main>
+      </div>
     </div>
   );
 }

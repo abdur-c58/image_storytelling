@@ -55,6 +55,21 @@ Upload responses contain `accepted` and `reason`. If `accepted` is `false`, read
 
 The `upload.browser_upload_page` link in a task opens the console directly on that task.
 
+### Which story and episode a task is for
+
+Every task names its story and episode at the top level, next to `task_id`:
+
+| Field | Example | Notes |
+| --- | --- | --- |
+| `story_id` | `the-rising` | The story folder. |
+| `story_title` | `The Rising` | Display title. |
+| `episode_number` | `3` | `null` for story tasks (masters, voice tests). |
+| `episode_title` | `Day One` | `null` for story tasks. |
+| `version` | `2` | Which version of the episode. `null` for story tasks. |
+| `output_basename` | `the-rising-ep03-v2-day-one` | Stem the site uses for this episode's files. |
+
+Use them only to keep your work organised (e.g. a download folder `the-rising/ep03/v2/`) and in your notes ("Ep 3 v2: uploaded 8/8"). They are **not** metadata: never put them in a prompt, a title or a description. Paste `final_prompt`, `title` and `description` exactly as given. If two tasks for the same story and episode but different versions appear, do each one as given; the site decides which version is used.
+
 ---
 
 ## Job 1: `generate_location_master`

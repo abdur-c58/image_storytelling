@@ -117,7 +117,10 @@ async function main() {
       console.error((error as Error).message);
     }
     if (task) {
-      console.log(`claimed ${task.type} (${task.scope}) for "${task.project_title ?? task.story_title}"`);
+      const where = task.episode_number
+        ? `${task.story_title} (${task.story_id}) Ep ${task.episode_number} "${task.episode_title}" v${task.version}`
+        : `${task.story_title} (${task.story_id})`;
+      console.log(`claimed ${task.type} (${task.scope}) for ${where}${task.output_basename ? ` [${task.output_basename}]` : ""}`);
       try {
         if (IMAGE_TASKS.includes(task.type)) await doImages(task);
         else if (task.type === "upload_youtube") await doPublish(task);

@@ -6,6 +6,7 @@ import { assets, projects, segments, sfxCues, storyMasters, type TaskRow } from 
 import { NAME_CARD_TEMPLATE, NARRATOR, YOUTUBE_CATEGORIES } from "@/lib/episode/constants";
 import type { ImageItem } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
+import { taskContext } from "./context";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "./requirements";
 import { episodeVoices } from "./voices";
 
@@ -52,6 +53,7 @@ function upload(baseUrl: string, task: TaskRow) {
 /** Everything the bot or worker needs for one task, with fresh signed URLs. */
 export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promise<Record<string, unknown>> {
   const payload = task.payload as Record<string, unknown>;
+  const context = await taskContext(db, task);
   const base = {
     task_id: task.id,
     type: task.type,
@@ -61,7 +63,7 @@ export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promi
     attempt: task.attempts,
     max_attempts: task.maxAttempts,
     project_id: task.projectId,
-    story_id: task.storyId,
+    ...context,
   };
 
   if (!task.projectId) {
@@ -110,7 +112,7 @@ export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promi
         payload: {
           project_id: task.projectId,
           video_download_url: video ? signedDownloadLink(baseUrl, video.id) : null,
-          video_filename: `${ep.series.series_id}-ep${ep.series.episode_number}.mp4`,
+          video_filename: `${context.output_basename ?? `${ep.series.series_id}-ep${ep.series.episode_number}`}.mp4`,
           thumbnail_download_url: thumb ? signedDownloadLink(baseUrl, thumb.id) : null,
           thumbnail_variant_urls: req.thumbnailVariants
             .slice(1)

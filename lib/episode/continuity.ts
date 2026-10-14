@@ -1,4 +1,4 @@
-import { ABSENT_STATUSES, NARRATOR, PRONOUN_NAMES, REMOTE_VOICE_EFFECTS } from "./constants";
+import { ABSENT_STATUSES, NARRATOR, PRONOUN_NAMES, REMOTE_VOICE_EFFECTS, schemaAtLeast } from "./constants";
 import { segmentLines } from "./lines";
 import type { BibleAdditions, EpisodeDoc, Location, StoryBible, WorldVariable } from "./schema";
 import { checkIdentificationBible, identificationOf, povDrift, povNameMatcher } from "./structure";
@@ -287,6 +287,9 @@ export function checkContinuity(
   const cameo = bible.channel.recurring_cameo;
   let cameoCount = 0;
   const lastWorldAt = new Map<string, number>();
+  /** Locations whose state this episode already changed (messages then point at the change, not the previous episode). */
+  const changedHere = new Set<string>();
+  const startSource = start.after_episode > 0 ? `the story state after Episode ${start.after_episode}` : "the story's initial state";
 
   // ── Character status ──────────────────────────────────────────────
   const status = (state.character_status ??= {});
@@ -341,7 +344,7 @@ export function checkContinuity(
   const secondPerson = bible.narrator.pov === "second_person";
   /** 2.2 identification: name + aliases, and an error unless forbid_narrator_name is false. */
   const idNames = identification && povId ? povNameMatcher(bible, povId) : null;
-  const driftCheck = doc.schema_version === "2.2";
+  const driftCheck = schemaAtLeast(doc.schema_version, "2.2");
 
   // ── Lines: speakers, voices, absence ─────────────────────────────
   const checkLines = (seg: EpisodeDoc["segments"][number], i: number, present: boolean, locationId: string | null) => {
@@ -438,11 +441,17 @@ export function checkContinuity(
       }
       if (ch.persist) state.locations[ch.location_id] = ch.to_state_id;
       else temporary[ch.location_id] = ch.to_state_id;
+      changedHere.add(ch.location_id);
     });
 
     const expected = temporary[loc.id] ?? state.locations[loc.id];
     if (!loc.states.some((s) => s.id === scene.state_id)) {
       issues.error(at("scene", "state_id"), `${label}: ${loc.id} has no state "${scene.state_id}".`);
+    } else if (present && scene.state_id !== expected && !changedHere.has(loc.id)) {
+      issues.error(
+        at("scene", "state_id"),
+        `${label}: Episode ${epNo} uses location '${loc.id}' in state '${scene.state_id}', but ${startSource} is '${expected}' and no state change is declared.`,
+      );
     } else if (present && scene.state_id !== expected) {
       issues.error(
         at("scene", "state_id"),

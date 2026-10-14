@@ -4,45 +4,288 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { presignAssetGet } from "@/lib/assets";
 import { getDb } from "@/lib/db";
-import { assets, projects, storyMasters, taskEvents, tasks } from "@/lib/db/schema";
+import { assets, storyMasters, taskEvents, tasks, type StoryRow } from "@/lib/db/schema";
 import { NARRATOR } from "@/lib/episode/constants";
-import type { StoryState } from "@/lib/episode/continuity";
+import { initialSnapshot, type StoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
+import type { EpisodeEstimate } from "@/lib/episode/estimate";
+import { episodeHref } from "@/lib/episode/naming";
 import type { PromptPart } from "@/lib/episode/prompt";
 import type { StoryBible } from "@/lib/episode/schema";
+import { BUCKET_DOT, BUCKET_LABEL } from "@/lib/episode/status";
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
-import { getStory, masterAssetKey } from "@/lib/pipeline/story";
+import { daysUntilPurge, episodeGaps, listEpisodes, TRASH_DAYS, type EpisodeListItem } from "@/lib/pipeline/folders";
+import { activeSnapshots, computeStoryState } from "@/lib/pipeline/snapshots";
+import { effectiveBible, getStory, masterAssetKey } from "@/lib/pipeline/story";
 import { storyVoices } from "@/lib/pipeline/voices";
-import { CopyButton, AutoRefresh } from "../../projects/[id]/client";
-import { ago, StateBadge } from "../../ui";
-import { CastPanel, DeleteStoryButton, MasterCard, StoryActionButton, type CastView, type MasterView } from "./client";
+import { AutoRefresh, CopyButton } from "../../projects/[id]/client";
+import { ago, fmtSec, StateBadge } from "../../ui";
+import { ImportDrop } from "../import";
+import {
+  CastPanel,
+  DeleteStoryButton,
+  MasterCard,
+  RestoreStoryButton,
+  StoryActionButton,
+  StorySettingsForm,
+  type CastView,
+  type MasterView,
+} from "./client";
 
-export default async function StoryPage({ params }: PageProps<"/stories/[id]">) {
+const TABS = [
+  { id: "episodes", label: "Episodes" },
+  { id: "bible", label: "Story bible" },
+  { id: "settings", label: "Settings" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
+
+export default async function StoryPage({ params, searchParams }: PageProps<"/stories/[id]">) {
   await connection();
   const { id } = await params;
+  const tabParam = (await searchParams).tab;
+  const tab: Tab = TABS.some((t) => t.id === tabParam) ? (tabParam as Tab) : "episodes";
   const storyId = decodeURIComponent(id);
   const db = await getDb();
   const story = await getStory(db, storyId);
   if (!story) notFound();
-  const bible = story.bible as StoryBible;
-  const state = story.storyState as StoryState;
-  const base = await pageBaseUrl();
+  const [list, taskRows] = await Promise.all([
+    listEpisodes(db, storyId),
+    db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.storyId, storyId), inArray(tasks.status, ["queued", "leased", "dead"])))
+      .orderBy(desc(tasks.createdAt)),
+  ]);
+  const deleted = story.status === "deleted";
+  const busy = taskRows.some((t) => t.status === "queued" || t.status === "leased");
+  const href = (t: Tab) => `/stories/${encodeURIComponent(storyId)}${t === "episodes" ? "" : `?tab=${t}`}`;
+  const purgeIn = daysUntilPurge(story.deletedAt);
+  const planned = (story.bible as StoryBible | null)?.total_episodes_planned ?? null;
 
-  const [episodes, masterRows, candidateRows, taskRows, events] = await Promise.all([
-    db.select().from(projects).where(eq(projects.storyId, storyId)).orderBy(asc(projects.episodeNumber), asc(projects.createdAt)),
+  return (
+    <div className="flex flex-col gap-6">
+      <AutoRefresh enabled={busy || story.state === "LOCATION_MASTERS_REQUESTED" || list.some((e) => e.bucket === "in_progress" || e.bucket === "awaiting_bot")} />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <nav aria-label="Breadcrumb" className="eyebrow flex items-center gap-1">
+            <Link href="/stories" className="transition-colors hover:text-foreground">
+              Stories
+            </Link>
+            <span aria-hidden>›</span>
+            <span className="font-mono" aria-current="page">
+              {storyId}
+            </span>
+          </nav>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{story.title}</h1>
+            <StateBadge state={story.state} />
+            {story.status === "archived" && <span className="chip">Archived</span>}
+            {deleted && <span className="chip text-bad">In the trash</span>}
+          </div>
+          {story.description && <p className="mt-2 max-w-2xl font-light text-muted">{story.description}</p>}
+          <p className="mt-1 text-sm font-light text-muted">
+            {list.length}
+            {planned ? ` of ${planned}` : ""} episode{(planned ?? list.length) === 1 ? "" : "s"} · {story.stateDetail} · updated {ago(story.updatedAt)}
+          </p>
+        </div>
+        {deleted && <RestoreStoryButton storyId={storyId} />}
+      </div>
+
+      {deleted && (
+        <div className="rounded-2xl border border-bad/40 px-4 py-3 text-sm text-bad">
+          This story is in the trash. It is deleted with all its files in {purgeIn} day{purgeIn === 1 ? "" : "s"} unless you restore it. Its
+          episodes are stopped.
+        </div>
+      )}
+
+      <div role="tablist" aria-label="Story sections" className="flex gap-1 border-b border-line">
+        {TABS.map((t) => (
+          <Link
+            key={t.id}
+            href={href(t.id)}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm transition-colors ${tab === t.id ? "border-foreground font-medium" : "border-transparent text-muted hover:text-foreground"}`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
+
+      {tab === "episodes" && <EpisodesTab story={story} list={list} deleted={deleted} />}
+      {tab === "bible" && <BibleTab story={story} taskRows={taskRows} deleted={deleted} />}
+      {tab === "settings" && <SettingsTab story={story} episodes={list.length} />}
+    </div>
+  );
+}
+
+function runtimeOf(e: EpisodeListItem): number | null {
+  const p = e.active;
+  if (!p) return null;
+  const out = p.outputs as { duration_sec?: number };
+  return out.duration_sec ?? (p.estimate as EpisodeEstimate | null)?.total_seconds ?? null;
+}
+
+async function EpisodesTab({ story, list, deleted }: { story: StoryRow; list: EpisodeListItem[]; deleted: boolean }) {
+  const storyId = story.id;
+  const gaps = episodeGaps(list.map((e) => e.number));
+  const rows: ({ kind: "ep"; e: EpisodeListItem } | { kind: "gap"; n: number })[] = [
+    ...list.map((e) => ({ kind: "ep" as const, e })),
+    ...gaps.map((n) => ({ kind: "gap" as const, n })),
+  ].sort((a, b) => (a.kind === "ep" ? a.e.number : a.n) - (b.kind === "ep" ? b.e.number : b.n));
+  const noBible = !story.bible;
+  const addHref = `/new?story=${encodeURIComponent(storyId)}`;
+
+  const table = (
+    <section className="card flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="eyebrow">Episodes</h2>
+        {!deleted &&
+          (noBible ? (
+            <span className="flex items-center gap-2 text-sm text-muted">
+              <button type="button" className="btn" disabled title="Add the story bible first">
+                Add episode
+              </button>
+              Add the story bible first
+            </span>
+          ) : (
+            <Link href={addHref} className="btn-primary">
+              Add episode
+            </Link>
+          ))}
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted">{noBible ? "No episodes yet. Paste the story bible first, then add Episode 1." : "No episodes yet."}</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {rows.map((r) =>
+            r.kind === "gap" ? (
+              <li key={`gap-${r.n}`} className="flex items-center gap-3 py-2 text-sm text-warn">
+                <span className="w-12 font-mono">#{r.n}</span>
+                <span className="font-light">Missing: later episodes are checked against the story state before this gap.</span>
+              </li>
+            ) : (
+              <EpisodeRow key={r.e.episodeId} storyId={storyId} e={r.e} runtime={runtimeOf(r.e)} />
+            ),
+          )}
+        </ul>
+      )}
+    </section>
+  );
+
+  if (deleted) return table;
+  const state = story.bible ? await computeStoryState(await getDb(), storyId, effectiveBible(story)) : null;
+  const latest = list.reduce((n, e) => Math.max(n, e.number), 0);
+  const nextContext = state && {
+    story_id: storyId,
+    story_title: story.title,
+    next_episode_number: latest + 1,
+    start_state: state.current,
+    committed_through_episode: state.committed_through_episode,
+    previous_episodes: list.map((e) => ({ episode_number: e.number, episode_title: e.title, state: e.active?.state ?? null })),
+  };
+
+  return (
+    <ImportDrop scope={storyId} episodesBlocked={noBible ? "Add the story bible first" : null}>
+      <div className="flex flex-col gap-6">
+        {table}
+        {nextContext && (
+          <section className="card flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="eyebrow">Context for episode {nextContext.next_episode_number}</h2>
+              <CopyButton text={JSON.stringify(nextContext, null, 2)} label="Copy for Claude" />
+            </div>
+            <p className="text-sm font-light text-muted">
+              Paste this into Claude with the script contract. The next episode needs <code>story_id</code>,{" "}
+              <code>episode_number</code>, <code>episode_title</code>, its own segments, and <code>bible_additions</code> for anything
+              new.
+            </p>
+            <pre className="max-h-72 overflow-auto rounded-xl border border-line bg-background p-4 text-xs text-muted">
+              {JSON.stringify(nextContext, null, 2)}
+            </pre>
+          </section>
+        )}
+      </div>
+    </ImportDrop>
+  );
+}
+
+function EpisodeRow({ storyId, e, runtime }: { storyId: string; e: EpisodeListItem; runtime: number | null }) {
+  const p = e.active;
+  const out = (p?.outputs ?? {}) as { story_state_end?: unknown; story_state_committed_at?: string };
+  return (
+    <li className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
+      <span className="w-12 font-mono text-muted">#{e.number}</span>
+      <Link href={episodeHref(storyId, e.number)} className="min-w-0 flex-1 truncate font-medium hover:underline">
+        {e.title}
+      </Link>
+      {e.bucket && (
+        <span className="chip gap-1.5" title={p?.state}>
+          <span className={`h-2 w-2 rounded-full ${BUCKET_DOT[e.bucket]}`} aria-hidden />
+          {BUCKET_LABEL[e.bucket]}
+        </span>
+      )}
+      {p?.needsRevalidation && (
+        <Link href={episodeHref(storyId, e.number)} className="chip text-warn" title="An earlier episode changed and this version now fails continuity">
+          needs revalidation
+        </Link>
+      )}
+      {e.migrated && <span className="chip text-muted">migrated</span>}
+      <span className="w-16 text-right font-mono text-xs text-muted">{runtime ? fmtSec(runtime) : "–"}</span>
+      <span className="w-20 text-right text-xs text-muted" title={`${e.versions} version${e.versions === 1 ? "" : "s"}`}>
+        {p ? `v${p.version}` : "–"}
+        {e.versions > 1 ? ` of ${e.versions}` : ""}
+      </span>
+      {p?.youtubeUrl ? (
+        <a href={p.youtubeUrl} target="_blank" rel="noreferrer" className="link w-16 text-xs">
+          YouTube
+        </a>
+      ) : (
+        <span className="w-16" />
+      )}
+      {p && !!out.story_state_end && !out.story_state_committed_at && (
+        <StoryActionButton storyId={storyId} action={{ kind: "commit_state", projectId: p.id }} label="Commit state" small />
+      )}
+    </li>
+  );
+}
+
+async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRows: (typeof tasks.$inferSelect)[]; deleted: boolean }) {
+  const storyId = story.id;
+  if (!story.bible) {
+    return deleted ? (
+      <p className="text-sm text-muted">This story has no bible.</p>
+    ) : (
+      <ImportDrop scope={storyId}>
+        <section className="card flex flex-col gap-3">
+          <h2 className="eyebrow">No story bible yet</h2>
+          <p className="text-sm font-light text-muted">
+            Paste or drop the story bible for this folder. Its <code className="font-mono">story_id</code> must be{" "}
+            <code className="font-mono">&quot;{storyId}&quot;</code>. Episodes can be added once it is saved.
+          </p>
+          <div>
+            <Link href={`/new?story=${encodeURIComponent(storyId)}`} className="btn-primary">
+              Open the editor
+            </Link>
+          </div>
+        </section>
+      </ImportDrop>
+    );
+  }
+  const db = await getDb();
+  const bible = effectiveBible(story);
+  const base = await pageBaseUrl();
+  const [masterRows, candidateRows, events, snapshots] = await Promise.all([
     db.select().from(storyMasters).where(eq(storyMasters.storyId, storyId)).orderBy(asc(storyMasters.masterKey)),
     db
       .select()
       .from(assets)
       .where(and(eq(assets.storyId, storyId), eq(assets.status, "ready")))
       .orderBy(desc(assets.createdAt)),
-    db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.storyId, storyId), inArray(tasks.status, ["queued", "leased", "dead"])))
-      .orderBy(desc(tasks.createdAt)),
     db.select().from(taskEvents).where(eq(taskEvents.storyId, storyId)).orderBy(desc(taskEvents.createdAt)).limit(60),
+    activeSnapshots(db, storyId),
   ]);
+  const state: StoryState = await computeStoryState(db, storyId, bible);
 
   const masters: MasterView[] = await Promise.all(
     masterRows.map(async (m) => {
@@ -126,45 +369,21 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
     approved: masters.filter((m) => m.status === "approved").length,
     generated: masters.filter((m) => m.status === "generated").length,
   };
-  const latestEpisode = episodes.reduce((n, p) => Math.max(n, p.episodeNumber), 0);
-  const nextContext = {
-    story_id: storyId,
-    next_episode_number: Math.max(latestEpisode, state.committed_through_episode) + 1,
-    start_state: state.current,
-    committed_through_episode: state.committed_through_episode,
-    previous_episodes: episodes.map((p) => ({ episode_number: p.episodeNumber, title: p.title, state: p.state })),
-  };
   const warnings = story.warnings as ValidationIssue[];
   const gateOn = bible.automation.approval_gates.location_masters;
-  const active = taskRows.some((t) => t.status === "queued" || t.status === "leased");
+  const history = locationHistory(bible, snapshots);
+  const stateJson = JSON.stringify(state, null, 2);
 
   return (
     <div className="flex flex-col gap-6">
-      <AutoRefresh enabled={active || story.state === "LOCATION_MASTERS_REQUESTED"} />
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <span className="eyebrow">
-            <Link href="/stories" className="transition-colors hover:text-foreground">
-              Stories
-            </Link>{" "}
-            · <span className="font-mono">{storyId}</span>
-          </span>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{story.title}</h1>
-            <StateBadge state={story.state} />
-          </div>
-          <p className="mt-2 font-light text-muted">{story.stateDetail}</p>
-          <p className="mt-1 text-sm font-light text-muted">
-            {bible.characters.length} characters · {bible.scene_bible.locations.length} locations · updated {ago(story.updatedAt)}
-          </p>
+      <p className="text-sm font-light text-muted">
+        {bible.characters.length} characters · {bible.scene_bible.locations.length} locations · bible version {story.bibleVersion}
+      </p>
+      {counts.generated > 0 && !deleted && (
+        <div>
+          <StoryActionButton storyId={storyId} action={{ kind: "approve_all" }} label={`Approve all ${counts.generated} new masters`} primary />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {counts.generated > 0 && (
-            <StoryActionButton storyId={storyId} action={{ kind: "approve_all" }} label={`Approve all ${counts.generated} new`} primary />
-          )}
-          <DeleteStoryButton storyId={storyId} episodes={episodes.length} />
-        </div>
-      </div>
+      )}
 
       <section className="card flex flex-col gap-3">
         <h2 className="eyebrow">
@@ -174,18 +393,51 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
       </section>
 
       <section className="card flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="eyebrow">
-            Masters{" "}
-            <span className="text-sm font-normal text-muted">
-              ({counts.approved}/{counts.total} approved{gateOn ? "" : ", gate off"})
-            </span>
-          </h2>
+        <h2 className="eyebrow">Locations</h2>
+        <p className="text-sm font-light text-muted">State of each location after every episode (active versions). Highlighted cells changed in that episode.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-left text-muted">
+              <tr>
+                <th className="py-1 pr-3">Location</th>
+                <th className="pr-3">Start</th>
+                {history.episodes.map((n) => (
+                  <th key={n} className="pr-3">
+                    after ep {n}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {history.rows.map((r) => (
+                <tr key={r.id} className="border-t border-line">
+                  <td className="py-1.5 pr-3">
+                    <p className="font-medium">{r.name}</p>
+                    <p className="font-mono text-muted">{r.id}</p>
+                  </td>
+                  <td className="pr-3 font-mono">{r.initial}</td>
+                  {r.after.map((v, i) => (
+                    <td key={i} className={`pr-3 font-mono ${v.changed ? "text-info" : "text-muted"}`}>
+                      {v.state ?? "–"}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      </section>
+
+      <section className="card flex flex-col gap-3">
+        <h2 className="eyebrow">
+          Masters{" "}
+          <span className="text-sm font-normal text-muted">
+            ({counts.approved}/{counts.total} approved{gateOn ? "" : ", gate off"})
+          </span>
+        </h2>
         <p className="text-sm font-light text-muted">
-          Character sheets, group sheets and empty plates of every location state and angle. Approved masters are sent to
-          the bot as reference images for every episode picture they appear in. Regenerate any that don&apos;t match the
-          fixed landmarks or the character description.
+          Character sheets, group sheets and empty plates of every location state and angle. Approved masters are sent to the bot as
+          reference images for every episode picture they appear in.
         </p>
         {masters.length === 0 ? (
           <p className="text-sm text-muted">{gateOn ? "No masters yet." : "Masters are switched off for this story."}</p>
@@ -217,54 +469,23 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="card flex flex-col gap-3">
-          <h2 className="eyebrow">Episodes</h2>
-          {episodes.length === 0 ? (
-            <p className="text-sm text-muted">No episodes yet.</p>
-          ) : (
-            <ul className="divide-y divide-line">
-              {episodes.map((p) => {
-                const out = p.outputs as { story_state_end?: unknown; story_state_committed_at?: string };
-                return (
-                  <li key={p.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
-                    <span className="w-10 font-mono text-muted">#{p.episodeNumber}</span>
-                    <Link href={`/projects/${p.id}`} className="min-w-0 flex-1 truncate font-medium">
-                      {p.title}
-                    </Link>
-                    <StateBadge state={p.state} />
-                    {!!out.story_state_end && !out.story_state_committed_at && (
-                      <StoryActionButton storyId={storyId} action={{ kind: "commit_state", projectId: p.id }} label="Commit state" small />
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-        <div className="card flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="eyebrow">Story state</h2>
             <div className="flex gap-2">
-              <CopyButton text={JSON.stringify(state, null, 2)} label="Copy JSON" />
+              <CopyButton text={stateJson} label="Copy JSON" />
               <a
                 className="btn px-3 py-0.5 text-xs"
                 download={`${storyId}-story_state.json`}
-                href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(state, null, 2))}`}
+                href={`data:application/json;charset=utf-8,${encodeURIComponent(stateJson)}`}
               >
                 Download
               </a>
             </div>
           </div>
           <p className="text-xs font-light text-muted">
-            Committed through episode {state.committed_through_episode}. Episodes are validated against the state after the
-            previous episode.
+            After episode {state.committed_through_episode}. Each episode is validated against the state after the episode before it.
           </p>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-            {Object.entries(state.current.locations).map(([k, v]) => (
-              <div key={`l${k}`} className="contents">
-                <dt className="font-light text-muted">location {k}</dt>
-                <dd className="font-mono">{v}</dd>
-              </div>
-            ))}
             {Object.entries(state.current.world).map(([k, v]) => (
               <div key={`w${k}`} className="contents">
                 <dt className="font-light text-muted">{k}</dt>
@@ -281,32 +502,6 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
             <dd className="font-mono">{state.current.introduced_characters.join(", ") || "–"}</dd>
           </dl>
         </div>
-      </section>
-
-      <section className="card flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="eyebrow">Context for episode {nextContext.next_episode_number}</h2>
-          <CopyButton text={JSON.stringify(nextContext, null, 2)} label="Copy for Claude" />
-        </div>
-        <p className="text-sm font-light text-muted">
-          Paste this into Claude with the script contract. The next episode only needs <code>story_id</code>, its own
-          segments, and <code>bible_additions</code> for anything new.
-        </p>
-        <pre className="max-h-72 overflow-auto rounded-xl border border-line bg-background p-4 text-xs text-muted">
-          {JSON.stringify(nextContext, null, 2)}
-        </pre>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <details className="card text-xs">
-          <summary className="eyebrow cursor-pointer">Story bible JSON</summary>
-          <div className="mt-2 flex justify-end">
-            <CopyButton text={JSON.stringify(bible, null, 2)} label="Copy" />
-          </div>
-          <pre className="mt-2 max-h-[60vh] overflow-auto rounded-xl border border-line bg-background p-4 text-muted">
-            {JSON.stringify(bible, null, 2)}
-          </pre>
-        </details>
         <div className="card flex flex-col gap-1 overflow-auto text-xs" style={{ maxHeight: 480 }}>
           <h2 className="eyebrow mb-2">Log</h2>
           {taskRows
@@ -326,6 +521,83 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
               <span className="font-mono">{new Date(e.createdAt).toLocaleTimeString()}</span> {e.message}
             </p>
           ))}
+        </div>
+      </section>
+
+      <details className="card text-xs">
+        <summary className="eyebrow cursor-pointer">Story bible JSON</summary>
+        <div className="mt-2 flex justify-end">
+          <CopyButton text={JSON.stringify(story.bible, null, 2)} label="Copy" />
+        </div>
+        <pre className="mt-2 max-h-[60vh] overflow-auto rounded-xl border border-line bg-background p-4 text-muted">
+          {JSON.stringify(story.bible, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+function locationHistory(bible: StoryBible, snapshots: { episodeNumber: number; state: StoryStateSnapshot }[]) {
+  const episodes = snapshots.map((s) => s.episodeNumber);
+  const start = initialSnapshot(bible).locations;
+  const rows = bible.scene_bible.locations.map((loc) => {
+    let prev: string | null = start[loc.id] ?? null;
+    return {
+      id: loc.id,
+      name: loc.name,
+      initial: prev ?? "–",
+      after: snapshots.map((s) => {
+        const state = s.state.locations[loc.id] ?? null;
+        const changed = state !== null && state !== prev;
+        if (state !== null) prev = state;
+        return { state, changed };
+      }),
+    };
+  });
+  return { episodes, rows };
+}
+
+function SettingsTab({ story, episodes }: { story: StoryRow; episodes: number }) {
+  const deleted = story.status === "deleted";
+  return (
+    <div className="flex flex-col gap-6">
+      {!deleted && (
+        <section className="card">
+          <StorySettingsForm
+            storyId={story.id}
+            title={story.title}
+            description={story.description ?? ""}
+            defaultsOverride={Object.keys((story.defaultsOverride as object) ?? {}).length ? JSON.stringify(story.defaultsOverride, null, 2) : ""}
+          />
+        </section>
+      )}
+      {!deleted && (
+        <section className="card flex flex-col gap-3">
+          <h2 className="eyebrow">Archive</h2>
+          <p className="text-sm font-light text-muted">
+            {story.status === "archived"
+              ? "This story is archived: hidden from the story list by default. Its episodes are untouched."
+              : "Hide this story from the story list. Nothing stops or is deleted."}
+          </p>
+          <div>
+            <StoryActionButton
+              storyId={story.id}
+              action={{ kind: "archive", archived: story.status !== "archived" }}
+              label={story.status === "archived" ? "Unarchive" : "Archive"}
+            />
+          </div>
+        </section>
+      )}
+      <section className="card flex flex-col gap-3 border-bad/30">
+        <h2 className="eyebrow text-bad">{deleted ? "Delete forever" : "Delete"}</h2>
+        <p className="text-sm font-light text-muted">
+          {deleted
+            ? "Remove this story, every episode version and all files now instead of waiting for the trash to empty."
+            : `Move to the trash. Episodes stop and queued bot tasks are cancelled; restore within ${TRASH_DAYS} days.`}
+        </p>
+        <div className="flex gap-2">
+          {deleted && <RestoreStoryButton storyId={story.id} />}
+          <DeleteStoryButton storyId={story.id} title={story.title} episodes={episodes} forever={deleted} />
         </div>
       </section>
     </div>

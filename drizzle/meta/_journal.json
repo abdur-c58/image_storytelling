@@ -36,6 +36,20 @@
       "when": 1791940060570,
       "tag": "0004_rapid_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791958252383,
+      "tag": "0005_story_folders",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791958277974,
+      "tag": "0006_drop_story_archived",
+      "breakpoints": true
     }
   ]
 }

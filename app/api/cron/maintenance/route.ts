@@ -5,6 +5,7 @@ import { assets, projects } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { handle, HttpError, json } from "@/lib/http";
 import { advanceOwner } from "@/lib/agent-api";
+import { purgeDeletedStories } from "@/lib/pipeline/folders";
 import { reapExpired } from "@/lib/queue";
 import { getStorage } from "@/lib/storage";
 
@@ -47,5 +48,6 @@ export const GET = handle(async (request: Request) => {
     await db.delete(assets).where(eq(assets.id, asset.id));
     deleted++;
   }
-  return json({ ok: true, reaped_projects: touched.length, deleted_objects: deleted });
+  const purged = await purgeDeletedStories(db);
+  return json({ ok: true, reaped_projects: touched.length, deleted_objects: deleted, purged_stories: purged.length });
 });

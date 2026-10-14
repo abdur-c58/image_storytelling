@@ -129,21 +129,19 @@ export async function claimNext(kind: TaskKind, agentId: string, base: string, t
   if (!filter.length) return null;
   const task = await leaseNext(db, kind, agentId, kind === "bot" ? env.botLeaseSec : env.workerLeaseSec, filter);
   if (!task) return null;
-  let title = "";
+  let projectTitle = "";
   if (task.projectId) {
     const [project] = await db.select().from(projects).where(eq(projects.id, task.projectId));
-    title = project?.title ?? "";
-  } else if (task.storyId) {
-    const [story] = await db.select().from(stories).where(eq(stories.id, task.storyId));
-    title = story?.title ?? "";
+    projectTitle = project?.title ?? "";
   }
   await advanceOwner(db, ownerOf(task));
+  const hydrated = await hydrateTask(db, task, base);
   return {
-    ...(await hydrateTask(db, task, base)),
+    ...hydrated,
     lease_seconds: kind === "bot" ? env.botLeaseSec : env.workerLeaseSec,
     heartbeat_every_seconds: Math.floor((kind === "bot" ? env.botLeaseSec : env.workerLeaseSec) / 3),
-    project_title: task.projectId ? title : "",
-    story_title: task.storyId ? title : "",
+    project_title: projectTitle,
+    story_title: hydrated.story_title ?? "",
     dry_run: env.dryRun,
   };
 }

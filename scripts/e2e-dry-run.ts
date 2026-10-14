@@ -1,6 +1,7 @@
 /**
  * End-to-end dry run: story bible + episode bundle -> location masters (approved here) -> PUBLISHED, then
- * ffprobe the final MP4 and check the crop plan reached the timeline.
+ * ffprobe the final MP4 and check the crop plan reached the timeline. The bundle files itself into its story
+ * folder; the run checks the folder pages, the task metadata and the stories/{id}/ep{NN}/v{V}/ file layout.
  *
  *   npm run e2e [episode.json] [--all-features] [--no-masters]
  *
@@ -149,7 +150,8 @@ async function main() {
   if (allFeatures) {
     episode.overrides = { ...episode.overrides, render: { burn_in_captions: true, caption_style: "bottom_bar", outro_sec: 1.5 } };
   }
-  const bundle = { schema_version: "2.2", doc_type: "bundle", story_bible: bible, episode };
+  const bundle = { schema_version: "2.3", doc_type: "bundle", story_bible: bible, episode };
+  const episodeNumber: number = episode.episode_number ?? episode.series?.episode_number;
   const res = await fetch(`${base}/api/projects`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
@@ -219,7 +221,12 @@ async function main() {
     masters: { master_key: string; status: string }[];
     voice_samples: { speaker: string }[];
   };
-  if (story.story_state.committed_through_episode < episode.series.episode_number) throw new Error("story state was not committed on publish");
+  if (story.story_state.committed_through_episode < episodeNumber) throw new Error("story state was not committed on publish");
+  for (const page of [`/stories/${created.story_id}`, `/stories/${created.story_id}/episodes/${episodeNumber}`, "/stories"]) {
+    const r = await fetch(`${base}${page}`, { headers: { cookie } });
+    if (!r.ok) throw new Error(`${page} returned HTTP ${r.status}`);
+  }
+  console.log(`[e2e] story folder pages render (/stories/${created.story_id}, episode ${episodeNumber})`);
   const sampled = new Set(story.voice_samples.map((s) => s.speaker));
   const unsampled = speakers.filter((s) => !sampled.has(s));
   if (unsampled.length) throw new Error(`no voice test came back for ${unsampled.join(", ")}`);
@@ -237,6 +244,8 @@ async function main() {
 
   const finals = findFiles(storageDir, (p) => p.endsWith(".mp4") && p.split(path.sep).includes("final"));
   if (finals.length !== 1) throw new Error(`expected one final video, found ${finals.length}`);
+  const folder = ["stories", String(created.story_id), `ep${String(episodeNumber).padStart(2, "0")}`, "v1"].join(path.sep);
+  if (!finals[0].includes(folder)) throw new Error(`final video is not under ${folder}: ${finals[0]}`);
   const probe = spawnSync("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", finals[0]], { encoding: "utf8" });
   if (probe.status !== 0) throw new Error(`ffprobe rejected ${finals[0]}: ${probe.stderr}`);
   const info = JSON.parse(probe.stdout) as { streams: { codec_type: string; codec_name: string; width?: number; height?: number }[]; format: { duration: string } };

@@ -265,3 +265,63 @@ Settings live in `story_bible.defaults.structure` and can be overridden per epis
 4. **Recap length.** Estimated as words ÷ 2.4 wps plus the segment pause, like the runtime estimate, because real TTS lengths aren't known at validation time.
 5. **Name card count** includes both `title_card` and `infographic` segments with the template. Cards in other episodes are allowed and aren't counted.
 6. **The narrator-name rule is case-insensitive** and treats `'s` as outside the word, so "WICK'S" matches; "Wickham" doesn't.
+
+# Schema 2.3: story folders and episode organisation
+
+`schema_version` "2.3". 2.0–2.2 documents are still accepted. This release is mostly site organisation: a few header fields, new tables, and new pages. The render pipeline is unchanged.
+
+## 2.3-1. Story bible
+
+| Field | Rule |
+|---|---|
+| `story_id` | Unchanged: the folder's slug, immutable. |
+| `story_title` | Display title. The folder can be renamed on the site; the stored title then wins over the bible's. |
+| `story_description` | New, optional (default ""). Shown on the story page. |
+| `total_episodes_planned` | Unchanged; now also "Episode N of M" in `{{series_nav}}` and "3 / 8 episodes" in the folder list. |
+
+Re-pasting an identical bible is a no-op. Before a story has episodes the bible can change freely; afterwards only additions are accepted (as before).
+
+## 2.3-2. Episode header
+
+`story_id` (required, the story must exist), `story_title` (informational), `episode_number` (integer ≥ 1, required in 2.3), `episode_title` (required in 2.3), `is_finale` (optional), all at the top level.
+
+- Older documents keep `episode_number`, `episode_title_short` and `is_finale` in `series`. Before parsing, each form is filled from the other (`lib/episode/header.ts`). If both are present and disagree, it is an error.
+- `youtube.title` defaults to `episode_title`. `youtube.playlist` defaults to the story title.
+- A `story_title` that differs from the stored title is a warning: "This episode's story_title 'The Rising' differs from the stored title 'Rising'. Using the stored title."
+- A skipped number is a warning: "Episode 4 was added while Episode 3 is missing. State continuity is computed from Episode 2."
+- New description placeholder `{{series_nav}}`: "Episode N of M" plus "Previous: …" / "Next: …" lines for neighbours that are already on YouTube. It is filled at render time and refreshed in the stored description of unpublished neighbours when an episode is published.
+- 2.2 structure rules and POV-drift checks now apply to 2.2 **and later** episodes.
+
+## 2.3-3. Versions and snapshots
+
+- Re-pasting an existing `episode_number` stores a new version (v2, v3, …) after a confirmation with a diff summary. Exactly one version is active. Older versions are kept, stopped, and viewable. Version numbers are never reused, even after a delete.
+- When an episode version validates, its end state is stored (`story_state_snapshots`). Episode N validates against N−1's snapshot (or the initial state).
+- Replacing, re-activating or deleting an earlier episode re-checks every later episode's active version in order. Their snapshots are recomputed, failures are flagged "needs revalidation" with the errors, and nothing is deleted. Continuity errors name the previous episode, e.g. "Episode 3 uses location 'raft' in state 'launched', but the story state after Episode 2 is 'under_construction' and no state change is declared."
+
+## 2.3-4. Database
+
+| Table | Purpose |
+|---|---|
+| `stories` | Gains `description`, `status` (active / archived / deleted), `deleted_at`, `bible_version`, `defaults_override`. `bible`, `raw_json` and `story_state` are nullable (an empty folder). `archived` is replaced by `status`. |
+| `episodes` (new) | One per story and number (unique). `active_version_id`, `version_counter`, `migrated`. |
+| `projects` | Each row is one **episode version**: `episode_id`, `version` (unique per episode), `needs_revalidation`, `revalidation`, `migrated`. |
+| `story_state_snapshots` (new) | One per version: the story state after that episode. |
+
+`stories.story_state` is now a cache of the active versions' snapshots. Migration `0005` files existing projects into episodes and versions and puts projects without a story into **Unsorted** (`unsorted`). The README has the details and the rollback note.
+
+## 2.3-5. Storage, tasks and logs
+
+- New files: `stories/{id}/ep{NN}/v{V}/…` and `stories/{id}/masters/…`. Old keys stay valid. `scripts/migrate-v23.ts` moves them (dry run by default).
+- Every bot and worker task carries `story_id`, `story_title`, `episode_number`, `episode_title`, `version` and `output_basename`. The worker uses them for work folders (`work/tasks/{story}/ep{NN}/v{V}/…`), log lines and the rendered file name. The fake bot logs them, and the RUNBOOK explains them (they are never metadata).
+
+## 2.3 decisions and ambiguities
+
+1. **Versions are `projects` rows**, not a separate `episode_versions` table. Every existing project page, task, asset and API keeps working; `episodes` points at the active one.
+2. **A new version always becomes active**, and the previous active version is stopped (archived, queued tasks cancelled). A leased task (e.g. an upload in progress) is cancelled too; its lease is lost on the next call. Duplicating a version also makes the copy active, as a draft.
+3. **Snapshots are rewritten on recompute even when the episode now fails**, so later episodes are checked against what is actually stored. The resolved `episode.start_state` of an existing version isn't changed.
+4. **The stored story title wins** over the bible's `story_title` and an episode's `story_title`.
+5. **`youtube.playlist` defaults to the story title** for documents stored from now on. Migrated projects keep what they had.
+6. **`{{series_nav}}` never edits YouTube.** Only descriptions not yet uploaded are re-rendered.
+7. **"Awaiting bot"** means a queued or running bot task (pictures, masters, upload), or `PUBLISH_REQUESTED` / `WAITING_MASTERS`. "Ready" means waiting at an approval gate (`REVIEW`).
+8. **Migration edge case.** If every version of a migrated episode was archived, the newest one is still the active version, but it stays archived (stopped) until you press **Resume** on its episode page.
+9. **Archive vs trash.** Archive only hides a story from the list. Trash stops it, and it is purged after 30 days.

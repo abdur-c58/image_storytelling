@@ -1,11 +1,10 @@
 {
-  "schema_version": "2.1",
+  "schema_version": "2.3",
   "doc_type": "episode",
   "story_id": "rooftop-test",
-  "series": {
-    "episode_number": 1,
-    "episode_title_short": "Minimal Test"
-  },
+  "story_title": "Rooftop Test Story",
+  "episode_number": 1,
+  "episode_title": "Minimal Test",
   "segments": [
     {
       "id": "seg_001",

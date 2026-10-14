@@ -1,10 +1,10 @@
-# Story and episode JSON contract (schema 2.2, for the script writer)
+# Story and episode JSON contract (schema 2.3, for the script writer)
 
 Give this file to Claude (or any writer) together with:
 
 - the JSON Schemas in `schema/` (`story_bible.schema.json`, `episode.schema.json`, `bundle.schema.json`; also served at `/api/schema?type=story_bible|episode|bundle`),
-- the examples in `fixtures/`: `story_bible_example.json`, `episode_minimal.json`, `episode_full.json` (every feature),
-- for episode 2 onwards, the **"Context for episode N"** block from the site's Story page (story id, the story state the next episode starts from, previous episodes).
+- the examples in `fixtures/`: `story_bible_example.json`, `episode_1.json` and `episode_2.json` (two episodes of one story), `episode_minimal.json`, `episode_full.json` (every feature),
+- for episode 2 onwards, the **"Context for episode N"** block from the story's Episodes tab (story id and title, the next episode number, the story state after the previous episode, previous episodes).
 
 The site validates every field and checks **continuity** against the stored story. Errors block saving; warnings are shown but do not block. The editor at `/new` shows each problem with its line and column.
 
@@ -13,10 +13,12 @@ The site validates every field and checks **continuity** against the stored stor
 | `doc_type` | What it is | When |
 |---|---|---|
 | `story_bible` | Characters, places, world variables, art style, voice/crop defaults. | Once per story (re-paste to add things). |
-| `episode` | One video: segments with scenes, thumbnail, YouTube metadata. Refers to the story by `story_id`. | Every episode. |
-| `bundle` | `{ "schema_version": "2.2", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
+| `episode` | One video: segments with scenes, thumbnail, YouTube metadata. Names its story and number in the header. | Every episode. |
+| `bundle` | `{ "schema_version": "2.3", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
 
-Every document starts with `"schema_version": "2.2"` and its `doc_type`. 2.0 and 2.1 documents are still accepted (2.0 has no dialogue; neither has segment roles, so the structure check is skipped for them). A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
+Every document starts with `"schema_version": "2.3"` and its `doc_type`. 2.0–2.2 documents are still accepted (2.0 has no dialogue; 2.0 and 2.1 have no segment roles, so the structure check is skipped for them). A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
+
+**Stories are folders.** The site keeps one folder per `story_id`: the story bible, then one numbered episode after another. Pasting an episode files it into its folder by `story_id` and `episode_number`; pasting the same number again stores a new **version** (the old one is kept and stopped). Stories are independent of each other, except for channel characters (`scope: "channel"`).
 
 ## Output rules
 
@@ -31,11 +33,16 @@ Every document starts with `"schema_version": "2.2"` and its `doc_type`. 2.0 and
 ## Story bible
 
 ```text
-schema_version, doc_type, story_id, story_title, total_episodes_planned?, channel, narrator?, style_bible, characters[],
+schema_version, doc_type, story_id, story_title, story_description?, total_episodes_planned?, channel, narrator?, style_bible, characters[],
 character_groups?, scene_bible { world_variables[], locations[] }, defaults? { voice, audio, render, crop_policy }, automation?
 ```
 
-Once a story has episodes, a re-pasted bible may only **add** things (nothing removed), so old episodes stay valid.
+- `story_id`: the folder's id. Lowercase letters, digits, `-` and `_` (e.g. `the-rising`). **It never changes**, and every episode repeats it.
+- `story_title`: the display name ("The Rising"). The operator can rename the folder on the site; the site's name then wins.
+- `story_description` (optional): one or two sentences shown on the story's page.
+- `total_episodes_planned`: shown as "Episode N of M" and in the folder ("3 / 8 episodes").
+
+Once a story has episodes, a re-pasted bible may only **add** things (nothing removed), so old episodes stay valid. Re-pasting an identical bible changes nothing.
 
 ### channel
 
@@ -119,12 +126,37 @@ The site fills in the rest from the channel cast. `story_outfit_states` are extr
 ## Episode
 
 ```text
-schema_version, doc_type, story_id, series, segments[], character_status_changes?, thumbnail, youtube, chapters?, overrides?, bible_additions?, automation?
+schema_version, doc_type, story_id, story_title?, episode_number, episode_title, is_finale?, series?, segments[], character_status_changes?, thumbnail, youtube, chapters?, overrides?, bible_additions?, automation?
 ```
+
+### Header (2.3)
+
+```json
+{
+  "schema_version": "2.3",
+  "doc_type": "episode",
+  "story_id": "the-rising",
+  "story_title": "The Rising",
+  "episode_number": 3,
+  "episode_title": "The Knock",
+  "is_finale": false,
+  ...
+}
+```
+
+| Field | Rule |
+|---|---|
+| `story_id` | Required. The story must already exist on the site (paste its bible first, or send a bundle). |
+| `story_title` | Optional, informational. If it differs from the stored title you get a warning and the stored title is used. |
+| `episode_number` | Required, an integer from 1. Pasting a number that already exists makes a **new version** of that episode (after a confirmation). Skipping a number is allowed but warned about ("Episode 4 was added while Episode 3 is missing …"). |
+| `episode_title` | Required. Also the default `youtube.title` and the default short title in `series`. |
+| `is_finale` | Optional (default `false`). A finale needs no cliffhanger. |
+
+Episode N is checked against the story state **after episode N−1** (or the bible's starting state for episode 1), so you can write episode 2 while episode 1 is still rendering. Older documents that put `episode_number`, `episode_title_short` and `is_finale` in `series` still work; don't put different values in both places (error).
 
 ### series
 
-`episode_number`, `episode_title_short` (required), `recap_of_previous`, `cliffhanger`, `next_episode_teaser`, `state_carryover` (free-form notes; the real state is computed from scenes), `is_finale` (default `false`; a finale needs no cliffhanger).
+`episode_title_short` (defaults to `episode_title`), `recap_of_previous`, `cliffhanger`, `next_episode_teaser`, `state_carryover` (free-form notes; the real state is computed from scenes), `is_finale` (default `false`; a finale needs no cliffhanger).
 
 ### segments[]
 
@@ -376,12 +408,13 @@ Only commercially licensed clips are used (the channel is monetised): CC0, publi
 | Field | Notes |
 |---|---|
 | `channel_name` | Optional; defaults to the story's channel. The bot refuses a different channel. |
-| `title` | ≤ 100 characters. |
-| `description` | ≤ 5000 bytes after expansion. Put `{{chapters}}` and `{{sfx_credits}}` on their own lines. |
+| `title` | ≤ 100 characters. Optional in 2.3: defaults to `episode_title`. |
+| `description` | ≤ 5000 bytes after expansion. Put `{{chapters}}`, `{{sfx_credits}}` and (optionally) `{{series_nav}}` on their own lines. `{{series_nav}}` becomes "Episode N of M" plus links to the previous and next episodes once they are on YouTube. |
 | `tags` | ≤ 500 characters total. |
 | `category`, `language` | Default `Entertainment`, `en`. |
 | `visibility` | `private`, `unlisted`, `public` or `scheduled` (with a future `scheduled_publish_at` including a timezone offset). |
-| `playlist`, `pinned_comment`, `end_screen_note`, `comments_enabled` | Optional. |
+| `playlist` | Optional; defaults to the story title, so every episode of a story lands in one playlist. |
+| `pinned_comment`, `end_screen_note`, `comments_enabled` | Optional. |
 | `made_for_kids` | Default `false`. |
 | `contains_altered_or_synthetic_media` | Default `true` (AI images and voice). Leave it `true`. |
 
@@ -400,7 +433,8 @@ Leave `chapters` empty to get chapters from the segment roles instead: Cold open
 
 ## Writing checklist
 
-- [ ] `schema_version: "2.2"` and the right `doc_type`; the episode's `story_id` matches the story.
+- [ ] `schema_version: "2.3"` and the right `doc_type`; the episode's `story_id` matches the story.
+- [ ] The episode header has `episode_number` (the next number, unless this replaces an episode) and `episode_title`.
 - [ ] Channel characters from earlier stories are `{ "ref": id }`, not redefined.
 - [ ] Every speaker has a `voice`; speakers don't share a `voice_id` unless they share a `voice_group`.
 - [ ] Narration matches the `narrator.pov` ("you" in second person, "I" in first person) and never says the POV character's name or aliases.

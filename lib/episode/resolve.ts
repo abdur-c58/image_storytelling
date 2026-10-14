@@ -149,7 +149,11 @@ export function resolveEpisode(bible: StoryBible, doc: EpisodeDoc): Episode {
       series_title: story.story_title,
       total_episodes_planned: story.total_episodes_planned,
     },
-    youtube: { ...rest.youtube, channel_name: rest.youtube.channel_name || story.channel.channel_name },
+    youtube: {
+      ...rest.youtube,
+      channel_name: rest.youtube.channel_name || story.channel.channel_name,
+      playlist: rest.youtube.playlist ?? story.story_title,
+    },
     style_bible: {
       ...clone(story.style_bible),
       characters: story.characters.map((c) => ({

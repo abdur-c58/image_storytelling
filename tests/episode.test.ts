@@ -133,7 +133,9 @@ describe("continuity", () => {
     const ep = json("episode_full.json");
     ep.segments[6].scene.state_changes = [];
     const r = validateEp(ep);
-    expect(errorText(r)).toMatch(/segments\[6\]\.scene\.state_id: seg_006: apartment is "tidy" here, but the scene says "ransacked"/);
+    expect(errorText(r)).toMatch(
+      /segments\[6\]\.scene\.state_id: seg_006: Episode 1 uses location 'apartment' in state 'ransacked', but the story's initial state is 'tidy' and no state change is declared\./,
+    );
   });
 
   it("rejects a state_change whose from_state is wrong", () => {
@@ -210,11 +212,13 @@ describe("continuity", () => {
 
   it("continues from the previous episode's committed state", () => {
     const ep2 = json("episode_minimal.json");
-    ep2.series.episode_number = 2;
+    ep2.episode_number = 2;
     const state = initialStoryState(bible());
     state.by_episode["1"] = { ...state.current, after_episode: 1, locations: { rooftop: "barricaded", apartment: "ransacked" } };
     const r = validateEp(ep2, ctx(state));
-    expect(errorText(r)).toMatch(/rooftop is "barricaded" here, but the scene says "clear"/);
+    expect(errorText(r)).toMatch(
+      /Episode 2 uses location 'rooftop' in state 'clear', but the story state after Episode 1 is 'barricaded' and no state change is declared\./,
+    );
   });
 
   it("warns about too few channel cameos", () => {

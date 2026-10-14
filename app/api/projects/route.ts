@@ -27,7 +27,17 @@ export const POST = handle(async (request: Request) => {
     );
   }
   return json(
-    { id: out.projectId, project_id: out.projectId, story_id: out.storyId, doc_type: out.docType, warnings: validation.warnings },
+    {
+      id: out.projectId,
+      project_id: out.projectId,
+      story_id: out.storyId,
+      episode_number: validation.episode?.series.episode_number ?? null,
+      version: out.version,
+      replaced: out.replaced,
+      bible: out.bible,
+      doc_type: out.docType,
+      warnings: validation.warnings,
+    },
     { status: 201 },
   );
 });

@@ -41,6 +41,7 @@ import {
 } from "./schema";
 import { checkAgainstRegistry, expandCast, type CastRegistry } from "./cast";
 import { NARRATOR } from "./constants";
+import { normalizeBundleHeader, normalizeEpisodeHeader } from "./header";
 import { segmentText } from "./lines";
 import { segmentSentences } from "./sentences";
 import { checkIdentificationEpisode, checkStructure, type IdentificationReport, type StructureReport } from "./structure";
@@ -93,6 +94,8 @@ export interface StoryContext {
   mastersGate?: boolean;
   /** The channel cast, for checking characters added by the episode. */
   registry?: CastRegistry | null;
+  /** Episode numbers the story folder already has (for gap warnings). */
+  existingEpisodes?: number[];
 }
 
 export interface ValidationResult {
@@ -447,10 +450,10 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
   if (hasForbiddenYoutubeChars(yt.description)) {
     issues.error(P("youtube", "description"), 'Description must not contain "<" or ">".');
   }
-  const descBytes = utf8ByteLength(yt.description.replace(/\{\{(chapters|sfx_credits)\}\}/g, ""));
+  const descBytes = utf8ByteLength(yt.description.replace(/\{\{(chapters|sfx_credits|series_nav)\}\}/g, ""));
   if (descBytes > YOUTUBE_DESCRIPTION_MAX_BYTES) {
     issues.error(P("youtube", "description"), `Description is ${descBytes} bytes; YouTube allows ${YOUTUBE_DESCRIPTION_MAX_BYTES}.`);
-  } else if (descBytes > YOUTUBE_DESCRIPTION_MAX_BYTES - 1200 && /\{\{(chapters|sfx_credits)\}\}/.test(yt.description)) {
+  } else if (descBytes > YOUTUBE_DESCRIPTION_MAX_BYTES - 1200 && /\{\{(chapters|sfx_credits|series_nav)\}\}/.test(yt.description)) {
     issues.warn(P("youtube", "description"), "Description is close to the 5000-byte limit; chapters/credits may not fit.");
   }
   const tagsLen = youtubeTagsLength(yt.tags);
@@ -532,6 +535,12 @@ function checkEpisodeWithStory(
     issues.error(P("story_id"), `This episode belongs to story "${doc.story_id}", not "${ctx.bible.story_id}".`);
     return none;
   }
+  if (doc.story_title !== undefined && doc.story_title.trim() !== ctx.bible.story_title.trim()) {
+    issues.warn(
+      P("story_title"),
+      `This episode's story_title '${doc.story_title}' differs from the stored title '${ctx.bible.story_title}'. Using the stored title.`,
+    );
+  }
   checkBibleAdditions(ctx.bible, doc.bible_additions, issues, prefix);
   doc.bible_additions.characters.forEach((c, ci) => {
     checkAgainstRegistry(c, ctx.registry, ctx.bible.story_id, issues, P("bible_additions", "characters", ci));
@@ -557,7 +566,12 @@ function checkEpisodeWithStory(
     }
   });
 
-  const start = startSnapshotFor(ctx.state, effective, doc.series.episode_number);
+  const epNo = doc.series.episode_number;
+  const start = startSnapshotFor(ctx.state, effective, epNo);
+  if (ctx.existingEpisodes && epNo > 1 && !ctx.existingEpisodes.includes(epNo - 1)) {
+    const from = start.after_episode > 0 ? `Episode ${start.after_episode}` : "the story's initial state";
+    issues.warn(P("episode_number"), `Episode ${epNo} was added while Episode ${epNo - 1} is missing. State continuity is computed from ${from}.`);
+  }
   const continuity = checkContinuity(effective, doc, start, issues, prefix);
   const identification = checkIdentificationEpisode(effective, doc, issues, prefix);
   const structure = checkStructure(doc, episode.structure, effective.narrator.pov, episode.voice.pause_between_segments_ms, issues, prefix);
@@ -660,6 +674,12 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
   }
 
   if (doc_type === "bundle") {
+    const header = normalizeBundleHeader(raw);
+    raw = header.raw;
+    for (const h of header.issues) {
+      if (h.level === "error") issues.error(h.path, h.message);
+      else issues.warn(h.path, h.message);
+    }
     const parsed = BundleSchema.safeParse(raw);
     if (!parsed.success) {
       zodIssues(parsed.error, issues, raw);
@@ -686,6 +706,12 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
     };
   }
 
+  const header = normalizeEpisodeHeader(raw);
+  raw = header.raw;
+  for (const h of header.issues) {
+    if (h.level === "error") issues.error(h.path, h.message);
+    else issues.warn(h.path, h.message);
+  }
   const parsed = EpisodeDocSchema.safeParse(raw);
   if (!parsed.success) {
     zodIssues(parsed.error, issues, raw);

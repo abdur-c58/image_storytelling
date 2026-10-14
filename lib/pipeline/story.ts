@@ -1,20 +1,21 @@
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { sha256Hex } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
-import { assets, projects, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
-import { initialStoryState, type StoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
+import { assets, episodes, projects, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
+import { initialStoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
 import { buildMasterItems, type MasterItem } from "@/lib/episode/prompt";
 import { NARRATOR } from "@/lib/episode/constants";
 import { applyBibleAdditions, upgradeStoredBible } from "@/lib/episode/resolve";
-import type { BibleAdditions, StoryBible } from "@/lib/episode/schema";
+import { StoryDefaultsSchema, type BibleAdditions, type StoryBible } from "@/lib/episode/schema";
 import type { StoryContext } from "@/lib/episode/validate";
 import { createTask, logEvent, type Owner } from "@/lib/queue";
 import { getStorage, storyObjectPrefix } from "@/lib/storage";
 import { loadCastRegistry, recordChannelMaster, registerChannelCast, reuseChannelMasters } from "./cast";
+import { computeStoryState, recordSnapshot, refreshStoryStateCache } from "./snapshots";
 import { storyVoices } from "./voices";
 
-export const STORY_STATES = ["STORY_VALIDATED", "LOCATION_MASTERS_REQUESTED", "MASTERS_REVIEW", "MASTERS_APPROVED"] as const;
+export const STORY_STATES = ["NO_BIBLE", "STORY_VALIDATED", "LOCATION_MASTERS_REQUESTED", "MASTERS_REVIEW", "MASTERS_APPROVED"] as const;
 export type StoryStateName = (typeof STORY_STATES)[number];
 
 const MAX_MASTER_ATTEMPTS = 3;
@@ -28,28 +29,63 @@ export function mastersGateOn(bible: StoryBible): boolean {
 
 export async function getStory(db: Db, storyId: string): Promise<StoryRow | null> {
   const [row] = await db.select().from(stories).where(eq(stories.id, storyId));
-  return row ? { ...row, bible: upgradeStoredBible(row.bible) } : null;
+  return row ? { ...row, bible: row.bible ? upgradeStoredBible(row.bible) : null } : null;
 }
 
-/** Everything an episode of this story is validated against. */
+/** The stored bible, or a clear error for a folder that has none yet. */
+export function requireBible(story: StoryRow): StoryBible {
+  if (!story.bible) throw new Error(`Story "${story.title}" has no story bible yet. Add the story bible first.`);
+  return story.bible as StoryBible;
+}
+
+/**
+ * The bible episodes are resolved against: the folder's title (renames are title-only and win over the
+ * bible's story_title) and the Settings tab's defaults override merged in.
+ */
+export function effectiveBible(story: StoryRow): StoryBible {
+  const bible = structuredClone(requireBible(story));
+  bible.story_title = story.title;
+  const override = story.defaultsOverride as Record<string, Record<string, unknown> | undefined>;
+  if (override && Object.keys(override).length) {
+    const merged: Record<string, unknown> = { ...bible.defaults };
+    for (const [k, v] of Object.entries(override)) {
+      if (v && typeof v === "object") merged[k] = { ...((bible.defaults as Record<string, unknown>)[k] as object), ...v };
+    }
+    const parsed = StoryDefaultsSchema.safeParse(merged);
+    if (parsed.success) bible.defaults = parsed.data as StoryBible["defaults"];
+  }
+  return bible;
+}
+
+/** Numbers of the episodes in a story folder (any version). */
+export async function episodeNumbers(db: Db, storyId: string): Promise<number[]> {
+  const rows = await db
+    .select({ n: episodes.number })
+    .from(episodes)
+    .where(and(eq(episodes.storyId, storyId), isNotNull(episodes.activeVersionId)));
+  return rows.map((r) => r.n).sort((a, b) => a - b);
+}
+
+/** Everything an episode of this story is validated against. Null for unknown, deleted or bible-less folders. */
 export async function loadStoryContext(db: Db, storyId: string): Promise<StoryContext | null> {
   const story = await getStory(db, storyId);
-  if (!story) return null;
-  const bible = story.bible as StoryBible;
+  if (!story || !story.bible || story.status === "deleted") return null;
+  const bible = effectiveBible(story);
   const approved = await db
     .select({ key: storyMasters.masterKey })
     .from(storyMasters)
     .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.status, "approved")));
   return {
     bible,
-    state: story.storyState as StoryState,
+    state: await computeStoryState(db, storyId, bible),
     approvedMasters: new Set(approved.map((r) => r.key)),
     mastersGate: mastersGateOn(bible),
+    existingEpisodes: await episodeNumbers(db, storyId),
   };
 }
 
 /** Ids a later bible must keep once episodes exist (append-only, like bible_additions). */
-function bibleIds(b: StoryBible): string[] {
+export function bibleIds(b: StoryBible): string[] {
   return [
     ...b.characters.flatMap((c) => [`character ${c.id}`, ...c.outfit_states.map((o) => `outfit ${c.id}/${o.id}`)]),
     ...b.scene_bible.world_variables.map((v) => `world variable ${v.id}`),
@@ -116,18 +152,33 @@ async function syncMasters(db: Db, bible: StoryBible, removeStale: boolean): Pro
   }
 }
 
+/** Same bible as stored (ignoring key order and defaults applied on parse)? */
+export function sameBible(a: StoryBible, b: StoryBible): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+}
+
+export type SaveStoryOutcome = "created" | "filled" | "updated" | "unchanged";
+
 /**
- * Store a validated story bible. A new story starts at STORY_VALIDATED. Re-pasting replaces it while no
- * episodes exist; afterwards only supersets are accepted so existing episodes stay valid.
+ * Store a validated story bible. A new story starts at STORY_VALIDATED; an empty folder of the same id gets
+ * the bible. Re-pasting the same bible changes nothing. Otherwise the bible is replaced while no episodes
+ * exist; afterwards only supersets (additions) are accepted so existing episodes stay valid.
  */
 export async function saveStory(
   db: Db,
   bible: StoryBible,
   rawJson: string,
   warnings: unknown[],
-): Promise<{ storyId: string; created: boolean }> {
+): Promise<{ storyId: string; created: boolean; outcome: SaveStoryOutcome }> {
   const existing = await getStory(db, bible.story_id);
-  if (existing) {
+  if (existing?.status === "deleted") {
+    throw new Error(`Story "${existing.title}" (${existing.id}) is in the trash. Restore it before adding to it.`);
+  }
+  let outcome: SaveStoryOutcome;
+  if (existing?.bible) {
+    if (sameBible(existing.bible as StoryBible, bible)) return { storyId: bible.story_id, created: false, outcome: "unchanged" };
     const [{ n }] = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(projects)
@@ -140,31 +191,54 @@ export async function saveStory(
         );
       }
     }
-    const state = existing.storyState as StoryState;
     await db
       .update(stories)
-      .set({ title: bible.story_title, bible, rawJson, warnings, updatedAt: new Date(), storyState: state })
+      .set({ bible, rawJson, warnings, bibleVersion: sql`${stories.bibleVersion} + 1`, updatedAt: new Date() })
       .where(eq(stories.id, bible.story_id));
     await syncMasters(db, bible, n === 0);
+    await refreshStoryStateCache(db, bible.story_id);
     await logEvent(db, { storyId: bible.story_id }, null, "info", "Story bible updated.");
+    outcome = "updated";
+  } else if (existing) {
+    await db
+      .update(stories)
+      .set({
+        state: "STORY_VALIDATED",
+        stateDetail: "Story bible validated.",
+        description: existing.description || bible.story_description,
+        bible,
+        rawJson,
+        warnings,
+        bibleVersion: 1,
+        storyState: initialStoryState(bible),
+        updatedAt: new Date(),
+      })
+      .where(eq(stories.id, bible.story_id));
+    await syncMasters(db, bible, true);
+    await refreshStoryStateCache(db, bible.story_id);
+    await logEvent(db, { storyId: bible.story_id }, null, "info", "Story bible added to the folder.");
+    outcome = "filled";
   } else {
     await db.insert(stories).values({
       id: bible.story_id,
       title: bible.story_title,
       state: "STORY_VALIDATED",
       stateDetail: "Story bible validated.",
+      description: bible.story_description,
       bible,
       rawJson,
+      bibleVersion: 1,
       storyState: initialStoryState(bible),
       warnings,
     });
     await syncMasters(db, bible, true);
     await logEvent(db, { storyId: bible.story_id }, null, "info", "Story created from story bible JSON.");
+    outcome = "created";
   }
   await registerChannelCast(db, bible);
   await reuseChannelMasters(db, bible.story_id);
   await advanceStory(db, bible.story_id);
-  return { storyId: bible.story_id, created: !existing };
+  return { storyId: bible.story_id, created: outcome === "created", outcome };
 }
 
 export const voiceSampleKey = (speaker: string) => `voice_sample/${speaker}`;
@@ -173,7 +247,7 @@ export const voiceSampleKey = (speaker: string) => `voice_sample/${speaker}`;
 export async function requestVoiceSample(db: Db, storyId: string, speaker: string, text?: string): Promise<void> {
   const story = await getStory(db, storyId);
   if (!story) throw new Error("Story not found.");
-  const bible = story.bible as StoryBible;
+  const bible = requireBible(story);
   const { voices } = await storyVoices(db, storyId);
   const voice = voices[speaker];
   if (!voice) throw new Error(`${speaker} has no voice in the story bible.`);
@@ -201,7 +275,7 @@ export async function requestVoiceSample(db: Db, storyId: string, speaker: strin
 export async function promoteCharacter(db: Db, storyId: string, characterId: string): Promise<void> {
   const story = await getStory(db, storyId);
   if (!story) throw new Error("Story not found.");
-  const bible = structuredClone(story.bible as StoryBible);
+  const bible = structuredClone(requireBible(story));
   const c = bible.characters.find((x) => x.id === characterId);
   if (!c) throw new Error(`Unknown character ${characterId}.`);
   if (c.scope === "channel") throw new Error(`${c.name} is already in the channel cast.`);
@@ -209,7 +283,7 @@ export async function promoteCharacter(db: Db, storyId: string, characterId: str
   const taken = registry.get(characterId);
   if (taken) throw new Error(`The channel cast already has a "${characterId}" (from story "${taken.origin_story_id}").`);
   c.scope = "channel";
-  await db.update(stories).set({ bible, updatedAt: new Date() }).where(eq(stories.id, storyId));
+  await db.update(stories).set({ bible, bibleVersion: sql`${stories.bibleVersion} + 1`, updatedAt: new Date() }).where(eq(stories.id, storyId));
   await registerChannelCast(db, bible);
   const approved = await db
     .select()
@@ -227,10 +301,13 @@ export async function mergeBibleAdditions(db: Db, storyId: string, additions: Bi
   if (!additions) return false;
   const story = await getStory(db, storyId);
   if (!story) throw new Error("Story not found.");
-  const before = story.bible as StoryBible;
+  const before = requireBible(story);
   const merged = applyBibleAdditions(before, additions);
   if (JSON.stringify(merged) === JSON.stringify(before)) return false;
-  await db.update(stories).set({ bible: merged, updatedAt: new Date() }).where(eq(stories.id, storyId));
+  await db
+    .update(stories)
+    .set({ bible: merged, bibleVersion: sql`${stories.bibleVersion} + 1`, updatedAt: new Date() })
+    .where(eq(stories.id, storyId));
   await syncMasters(db, merged, false);
   await registerChannelCast(db, merged);
   await reuseChannelMasters(db, storyId);
@@ -245,7 +322,7 @@ type MasterTaskType = (typeof MASTER_TASK_TYPES)[number];
 const taskTypeFor = (r: { kind: string }): MasterTaskType => (r.kind === "group" ? GROUP_TASK : "generate_location_master");
 
 function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[]) {
-  const bible = story.bible as StoryBible;
+  const bible = requireBible(story);
   return {
     story_id: story.id,
     story_title: story.title,
@@ -281,7 +358,7 @@ function trigger(bible: StoryBible, type = "generate_location_master") {
 /** Idempotent: queue missing masters, recompute the story state, and wake episodes waiting on masters. */
 export async function advanceStory(db: Db, storyId: string): Promise<void> {
   const story = await getStory(db, storyId);
-  if (!story || story.archived) return;
+  if (!story || !story.bible || story.status === "deleted") return;
   const bible = story.bible as StoryBible;
   const owner: Owner = { storyId };
 
@@ -444,7 +521,7 @@ export async function regenerateMaster(db: Db, storyId: string, masterKey: strin
     .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.masterKey, masterKey)));
   if (!row) throw new Error(`Unknown master ${masterKey}.`);
   const type = taskTypeFor(row);
-  const t = trigger(story.bible as StoryBible, type);
+  const t = trigger(requireBible(story), type);
   await createTask(db, {
     storyId,
     kind: "bot",
@@ -464,40 +541,38 @@ export async function regenerateMaster(db: Db, storyId: string, masterKey: strin
 }
 
 /**
- * Record where the story stands after an episode, so the next episode is validated against it.
- * Runs automatically when an episode is published; the Story page can also commit it by hand.
+ * Make sure an episode version's end state is recorded as its snapshot and refresh the story state cache.
+ * Snapshots are stored when an episode is accepted (2.3); this also covers versions stored before that.
  */
 export async function commitStoryState(db: Db, projectId: string): Promise<StoryStateSnapshot | null> {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project?.storyId) return null;
   const end = (project.outputs as { story_state_end?: StoryStateSnapshot }).story_state_end;
   if (!end) return null;
-  const story = await getStory(db, project.storyId);
-  if (!story) return null;
-  const state = structuredClone(story.storyState as StoryState);
-  state.by_episode[String(end.after_episode)] = end;
-  state.committed_through_episode = Math.max(state.committed_through_episode, end.after_episode);
-  const latest = Object.values(state.by_episode).sort((a, b) => b.after_episode - a.after_episode)[0];
-  state.current = latest ?? state.current;
-  await db.update(stories).set({ storyState: state, updatedAt: new Date() }).where(eq(stories.id, project.storyId));
+  await recordSnapshot(db, { projectId, storyId: project.storyId, episodeNumber: project.episodeNumber, version: project.version }, end);
+  await refreshStoryStateCache(db, project.storyId);
   await db
     .update(projects)
     .set({ outputs: { ...(project.outputs as object), story_state_committed_at: new Date().toISOString() } })
     .where(eq(projects.id, projectId));
-  await logEvent(db, { storyId: project.storyId }, null, "info", `Story state committed after episode ${end.after_episode}.`);
+  await logEvent(db, { storyId: project.storyId }, null, "info", `Story state recorded after episode ${project.episodeNumber} (v${project.version}).`);
   return end;
 }
 
+/** Permanently removes a story folder: every episode version with its files, then the story's own files and rows. */
 export async function deleteStory(db: Db, storyId: string): Promise<{ filesDeleted: number }> {
   const story = await getStory(db, storyId);
   if (!story) throw new Error("Story not found.");
-  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(projects).where(eq(projects.storyId, storyId));
-  if (n > 0) throw new Error(`Delete its ${n} episode(s) first.`);
+  const { deleteProject } = await import("./actions");
+  let filesDeleted = 0;
+  await db.update(episodes).set({ activeVersionId: null }).where(eq(episodes.storyId, storyId));
+  const versions = await db.select({ id: projects.id }).from(projects).where(eq(projects.storyId, storyId));
+  for (const v of versions) filesDeleted += (await deleteProject(db, v.id)).filesDeleted;
   await db
     .update(tasks)
     .set({ status: "cancelled" })
     .where(and(eq(tasks.storyId, storyId), inArray(tasks.status, ["queued", "leased"])));
-  const filesDeleted = await getStorage().deletePrefix(storyObjectPrefix(storyId));
+  filesDeleted += await getStorage().deletePrefix(storyObjectPrefix(storyId));
   await db.delete(stories).where(eq(stories.id, storyId));
   return { filesDeleted };
 }

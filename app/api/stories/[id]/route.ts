@@ -4,9 +4,11 @@ import { requireAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { storyMasters } from "@/lib/db/schema";
 import { HttpError, handle, json } from "@/lib/http";
-import { approveAllGenerated, getStory, requestVoiceSample } from "@/lib/pipeline/story";
+import { listEpisodes } from "@/lib/pipeline/folders";
+import { computeStoryState } from "@/lib/pipeline/snapshots";
+import { approveAllGenerated, effectiveBible, getStory, requestVoiceSample } from "@/lib/pipeline/story";
 
-/** Story status for scripts (admin session): state, story_state, master statuses and voice tests. */
+/** Story folder status for scripts (admin session): state, episodes, story_state, master statuses and voice tests. */
 export const GET = handle(async (_request: Request, ctx: RouteContext<"/api/stories/[id]">) => {
   await requireAdmin();
   const { id } = await ctx.params;
@@ -20,12 +22,22 @@ export const GET = handle(async (_request: Request, ctx: RouteContext<"/api/stor
   const voiceSamples = (await readyStoryAssets(db, id))
     .filter((a) => a.assetKey.startsWith("voice_sample/"))
     .map((a) => ({ speaker: a.assetKey.slice("voice_sample/".length), duration_sec: a.durationSec, created_at: a.createdAt }));
+  const episodes = (await listEpisodes(db, id)).map((e) => ({
+    episode_number: e.number,
+    episode_title: e.title,
+    versions: e.versions,
+    active_version: e.active ? { project_id: e.active.id, version: e.active.version, state: e.active.state, needs_revalidation: e.active.needsRevalidation } : null,
+    status: e.bucket,
+  }));
   return json({
     id: story.id,
     title: story.title,
+    description: story.description,
+    status: story.status,
     state: story.state,
     state_detail: story.stateDetail,
-    story_state: story.storyState,
+    episodes,
+    story_state: story.bible ? await computeStoryState(db, id, effectiveBible(story)) : null,
     masters,
     voice_samples: voiceSamples,
   });

@@ -1,12 +1,13 @@
 "use client";
 
 import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { createProjectAction, validateDocumentAction, type CreateState } from "@/app/actions";
+import { createProjectAction, planIngestAction, validateDocumentAction, type CreateState } from "@/app/actions";
+import type { IngestPlan } from "@/lib/pipeline/folders";
 import { convertV1ToV2 } from "@/lib/episode/migrate";
 import { detectDocType, parseJsonText, validateText, type ValidationIssue, type ValidationResult } from "@/lib/episode/validate";
 import type { SegmentRole } from "@/lib/episode/schema";
 import type { IdentificationReport, PovSegment, StructureReport } from "@/lib/episode/structure";
-import { DRAFT_KEY } from "../projects/drop-import";
+import { DRAFT_KEY } from "../stories/import";
 
 function fmtMinutes(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -18,9 +19,12 @@ const DOC_LABEL = { story_bible: "Story bible", episode: "Episode", bundle: "Bun
 export function EpisodeEditor({
   examples,
   loadDraft,
+  scope = null,
 }: {
   examples: { story: string; minimal: string; full: string };
   loadDraft: boolean;
+  /** Pasting inside a story folder: documents for other stories are refused. */
+  scope?: { id: string; title: string } | null;
 }) {
   const [text, setText] = useState("");
   const deferred = useDeferredValue(text);
@@ -36,6 +40,16 @@ export function EpisodeEditor({
   const [notes, setNotes] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
+  const [plan, setPlan] = useState<IngestPlan | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const review = async () => {
+    setPlanning(true);
+    try {
+      setPlan(await planIngestAction(text, scope?.id ?? null));
+    } finally {
+      setPlanning(false);
+    }
+  };
 
   // Episodes need the stored story for continuity; ask the server once typing settles.
   const needsServer = !!local && (local.doc_type === "episode" || local.doc_type === "bundle") && !legacy;
@@ -45,7 +59,7 @@ export function EpisodeEditor({
     const timer = setTimeout(async () => {
       setChecking(true);
       try {
-        const result = await validateDocumentAction(deferred);
+        const result = await validateDocumentAction(deferred, scope?.id ?? null);
         if (!cancelled) setServer({ text: deferred, result });
       } finally {
         if (!cancelled) setChecking(false);
@@ -55,7 +69,7 @@ export function EpisodeEditor({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [deferred, needsServer]);
+  }, [deferred, needsServer, scope?.id]);
 
   const result = needsServer ? (server?.text === deferred ? server.result : null) : local;
 
@@ -102,7 +116,7 @@ export function EpisodeEditor({
 
   const est = result?.estimate;
   const docType = local?.doc_type ?? null;
-  const submitLabel = docType === "story_bible" ? "Save story" : docType === "bundle" ? "Save story + create project" : "Create project";
+  const submitLabel = docType === "story_bible" ? "Review and save story" : docType === "bundle" ? "Review and save story + episode" : "Review and add episode";
   const status = !local
     ? "Waiting for JSON"
     : !result
@@ -112,6 +126,56 @@ export function EpisodeEditor({
         : `${result.errors.length} error${result.errors.length === 1 ? "" : "s"}`;
   return (
     <form action={action} className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      {scope && <input type="hidden" name="scope" value={scope.id} />}
+      {plan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" onClick={() => !pending && setPlan(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plan-title"
+            className="max-h-full w-full max-w-xl overflow-y-auto rounded-2xl border border-line bg-background p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="eyebrow">{plan.ok ? "Confirm" : "Can't save"}</span>
+            <h2 id="plan-title" className="mt-2 text-xl font-bold tracking-tight">
+              {plan.ok ? plan.summary : "This document can't be stored here"}
+            </h2>
+            {plan.diff.length > 0 && (
+              <ul className="mt-3 list-disc pl-5 text-sm font-light text-muted">
+                {plan.diff.map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            )}
+            {plan.errors.map((e, i) => (
+              <p key={i} className="mt-2 text-sm text-bad">
+                {e.message}{" "}
+                {e.href && (
+                  <a href={e.href} className="link">
+                    {e.linkLabel}
+                  </a>
+                )}
+              </p>
+            ))}
+            {plan.warnings.slice(0, 5).map((w, i) => (
+              <p key={i} className="mt-2 text-xs text-warn">
+                {w}
+              </p>
+            ))}
+            {state.error && !pending && <p className="mt-3 text-sm text-bad">{state.error}</p>}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" className="btn" onClick={() => setPlan(null)} disabled={pending}>
+                Cancel
+              </button>
+              {plan.ok && plan.action !== "bible_unchanged" && (
+                <button type="submit" className="btn-primary" disabled={pending}>
+                  {pending ? "Saving…" : "Confirm"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn" onClick={() => load(examples.story)}>
@@ -139,7 +203,7 @@ export function EpisodeEditor({
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           spellCheck={false}
-          placeholder={'Paste or drop a story bible, episode or bundle here\n\n{ "schema_version": "2.0", "doc_type": "episode", ... }'}
+          placeholder={'Paste or drop a story bible, episode or bundle here\n\n{ "schema_version": "2.3", "doc_type": "episode", "story_id": "...", "episode_number": 1, ... }'}
           className={`input h-[70vh] rounded-2xl p-4 font-mono text-xs leading-[18px] ${dragging ? "border-dashed border-line-hover bg-panel" : ""}`}
         />
       </div>
@@ -149,17 +213,17 @@ export function EpisodeEditor({
           <p className={`text-xl font-semibold tracking-tight ${result && !result.ok ? "text-bad" : ""}`}>{status}</p>
           {result?.needs_story && (
             <p className="text-sm text-muted">
-              Story <span className="font-mono">{result.needs_story}</span> isn&apos;t stored yet. Save its story bible first,
-              or paste a bundle.
+              Story <span className="font-mono">{result.needs_story}</span> has no story bible here yet. Save its story bible
+              first, or paste a bundle.
             </p>
           )}
           {legacy && (
             <button type="button" className="btn w-full" onClick={convert}>
-              Convert v1 to a 2.0 bundle
+              Convert v1 to a 2.3 bundle
             </button>
           )}
-          <button className="btn-primary w-full" disabled={!result?.ok || pending || checking}>
-            {pending ? "Saving…" : submitLabel}
+          <button type="button" className="btn-primary w-full" disabled={!result?.ok || pending || checking || planning} onClick={() => void review()}>
+            {pending ? "Saving…" : planning ? "Checking…" : submitLabel}
           </button>
           {state.error && <p className="text-sm text-bad">{state.error}</p>}
         </div>
@@ -311,7 +375,7 @@ function StructurePanel({ report }: { report: StructureReport }) {
           ))}
         </ul>
       ) : (
-        <p className="font-light text-muted">Role checks apply to schema 2.2 episodes with structure enabled.</p>
+        <p className="font-light text-muted">Role checks apply to schema 2.2+ episodes with structure enabled.</p>
       )}
       <ol className="flex flex-col gap-0.5 font-mono text-[0.7rem]">
         {report.roles.map((r) => (

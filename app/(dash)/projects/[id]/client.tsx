@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { deleteProjectAction, projectAction, type ProjectAction } from "@/app/actions";
+import { deleteProjectAction, projectAction, versionAction, type ProjectAction, type VersionAction } from "@/app/actions";
 
 export function ActionButton({
   projectId,
@@ -84,11 +84,14 @@ export function DeleteProjectButton({
   title,
   published,
   active,
+  only = false,
 }: {
   projectId: string;
   title: string;
   published: boolean;
   active: boolean;
+  /** The episode's only version. */
+  only?: boolean;
 }) {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [typed, setTyped] = useState("");
@@ -119,7 +122,7 @@ export function DeleteProjectButton({
   return (
     <>
       <button type="button" className="btn text-bad hover:border-bad" onClick={() => setStep(1)}>
-        Delete
+        Delete version
       </button>
       {step > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" onClick={close}>
@@ -132,13 +135,13 @@ export function DeleteProjectButton({
           >
             <span className="eyebrow text-bad">Step {step} of 2</span>
             <h2 id="delete-title" className="mt-2 text-2xl font-bold tracking-tight">
-              {step === 1 ? "Delete this project permanently?" : "Confirm by typing the title"}
+              {step === 1 ? "Delete this version permanently?" : "Confirm by typing the title"}
             </h2>
             {step === 1 ? (
               <>
                 <p className="mt-3 text-sm font-light text-muted">This removes, with no way to undo:</p>
                 <ul className="mt-2 list-disc pl-5 text-sm font-light text-muted">
-                  <li>the episode, its segments, tasks and activity log</li>
+                  <li>this version, its segments, tasks and activity log</li>
                   <li>every stored file: images, voice, sound effects, thumbnail, captions and video</li>
                 </ul>
                 {active && (
@@ -150,7 +153,9 @@ export function DeleteProjectButton({
                   </p>
                 )}
                 <p className="mt-3 text-sm font-light text-muted">
-                  To keep it but hide it from the list, use Archive instead.
+                  {only
+                    ? "It is the episode's only version, so the episode is removed and later episodes are re-checked."
+                    : "Other versions are kept. If this is the active version, the newest remaining one becomes active."}
                 </p>
                 <div className="mt-6 flex justify-end gap-2">
                   <button type="button" className="btn" onClick={close}>
@@ -229,5 +234,31 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
     >
       {copied ? "Copied" : label}
     </button>
+  );
+}
+
+/** Set active / duplicate for one episode version. */
+export function VersionButton({ projectId, action, label, confirm }: { projectId: string; action: VersionAction; label: string; confirm?: string }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-col">
+      <button
+        type="button"
+        disabled={pending}
+        className="btn"
+        onClick={() => {
+          if (confirm && !window.confirm(confirm)) return;
+          setError(null);
+          start(async () => {
+            const res = await versionAction(projectId, action);
+            if (res?.error) setError(res.error);
+          });
+        }}
+      >
+        {pending ? "…" : label}
+      </button>
+      {error && <span className="mt-1 text-xs text-bad">{error}</span>}
+    </span>
   );
 }

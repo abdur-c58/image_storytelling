@@ -120,7 +120,7 @@ export function imageTaskPayload(projectId: string, ep: Episode, items: ImageIte
 export async function unapprovedMastersFor(db: Db, project: Pick<ProjectRow, "storyId">): Promise<Set<string> | null> {
   if (!project.storyId) return null;
   const [story] = await db.select().from(stories).where(eq(stories.id, project.storyId));
-  if (!story || !mastersGateOn(story.bible as StoryBible)) return null;
+  if (!story?.bible || !mastersGateOn(story.bible as StoryBible)) return null;
   const rows = await db
     .select({ key: storyMasters.masterKey })
     .from(storyMasters)

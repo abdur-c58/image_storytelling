@@ -33,16 +33,29 @@ export function getStorage(): Storage {
   return globalForStorage.__slideshowStorage;
 }
 
-/** All objects for this app live under STORAGE_PREFIX, separate from the Billions folders in the same bucket. */
+const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._/-]/g, "_").replace(/\.\.+/g, ".");
+
+/** Pre-2.3 layout: projects/{id}/… (still read; new files go under stories/). */
 export function projectObjectKey(projectId: string, name: string): string {
-  const safe = name.replace(/[^a-zA-Z0-9._/-]/g, "_").replace(/\.\.+/g, ".");
-  return `${env.storagePrefix}projects/${projectId}/${safe}`;
+  return `${env.storagePrefix}projects/${projectId}/${safeName(name)}`;
 }
 
-/** Story-level files (location masters, character sheets) live beside the projects. */
+/** Story-level files: masters/… for location plates and character sheets, otherwise by asset key. */
 export function storyObjectKey(storyId: string, name: string): string {
-  const safe = name.replace(/[^a-zA-Z0-9._/-]/g, "_").replace(/\.\.+/g, ".");
-  return `${storyObjectPrefix(storyId)}${safe}`;
+  const safe = safeName(name);
+  return `${storyObjectPrefix(storyId)}${safe.startsWith("master/") ? `masters/${safe.slice("master/".length)}` : safe}`;
+}
+
+/** All of one episode version's files (schema 2.3): stories/{story}/ep{NN}/v{V}/. */
+export function episodeObjectPrefix(storyId: string, episodeNumber: number, version: number): string {
+  if (!Number.isInteger(episodeNumber) || episodeNumber < 1 || !Number.isInteger(version) || version < 1) {
+    throw new Error("Invalid episode number or version.");
+  }
+  return `${storyObjectPrefix(storyId)}ep${String(episodeNumber).padStart(2, "0")}/v${version}/`;
+}
+
+export function episodeObjectKey(storyId: string, episodeNumber: number, version: number, name: string): string {
+  return `${episodeObjectPrefix(storyId, episodeNumber, version)}${safeName(name)}`;
 }
 
 export function storyObjectPrefix(storyId: string): string {

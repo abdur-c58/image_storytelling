@@ -1,8 +1,9 @@
 {
-  "schema_version": "2.1",
+  "schema_version": "2.3",
   "doc_type": "story_bible",
   "story_id": "harbour-test",
   "story_title": "Harbour Test Story",
+  "story_description": "A second, independent story used to check that folders stay separate.",
   "total_episodes_planned": 2,
   "channel": { "channel_name": "Test Channel" },
   "style_bible": {

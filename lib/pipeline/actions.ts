@@ -5,7 +5,7 @@ import { assets, projects, segments, sfxCues, tasks } from "@/lib/db/schema";
 import { buildSegmentImageItem, segmentNeedsGeneratedImage } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
 import { createTask, logEvent, retryTask } from "@/lib/queue";
-import { getStorage, projectObjectPrefix } from "@/lib/storage";
+import { episodeObjectPrefix, getStorage, projectObjectPrefix } from "@/lib/storage";
 import { advance, imageTaskPayload, invalidateDownstreamOf, invalidateStages } from "./advance";
 import { assetKeys, requirements } from "./requirements";
 
@@ -143,17 +143,19 @@ export async function archiveProject(db: Db, projectId: string): Promise<void> {
  * events and SFX cues cascade). If storage fails the project stays intact so the delete can be retried.
  */
 export async function deleteProject(db: Db, projectId: string): Promise<{ filesDeleted: number }> {
-  await loadProject(db, projectId);
+  const { project } = await loadProject(db, projectId);
   await db
     .update(tasks)
     .set({ status: "cancelled" })
     .where(and(eq(tasks.projectId, projectId), inArray(tasks.status, ["queued", "leased"])));
   const storage = getStorage();
-  const prefix = projectObjectPrefix(projectId);
-  let filesDeleted = await storage.deletePrefix(prefix);
+  const prefixes = [projectObjectPrefix(projectId)];
+  if (project.storyId && project.episodeId) prefixes.push(episodeObjectPrefix(project.storyId, project.episodeNumber, project.version));
+  let filesDeleted = 0;
+  for (const prefix of prefixes) filesDeleted += await storage.deletePrefix(prefix);
   const stray = await db.select({ key: assets.storageKey }).from(assets).where(eq(assets.projectId, projectId));
   for (const { key } of stray) {
-    if (key && !key.startsWith(prefix)) {
+    if (key && !prefixes.some((p) => key.startsWith(p))) {
       await storage.delete(key);
       filesDeleted++;
     }

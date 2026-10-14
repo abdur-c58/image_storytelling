@@ -2,10 +2,10 @@ import "server-only";
 import { and, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
 import { newId, signToken, verifyToken } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
-import { assets, type AssetRow } from "@/lib/db/schema";
+import { assets, projects, type AssetRow } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import type { Owner } from "@/lib/queue";
-import { getStorage, projectObjectKey, storyObjectKey } from "@/lib/storage";
+import { episodeObjectKey, getStorage, projectObjectKey, storyObjectKey } from "@/lib/storage";
 
 export const EXTENSIONS: Record<string, string> = {
   "image/png": "png",
@@ -50,7 +50,19 @@ export async function createAsset(db: Db, input: NewAsset): Promise<AssetRow> {
   const id = newId("ast");
   const ext = EXTENSIONS[input.contentType] ?? "bin";
   const name = `${input.assetKey}/${id}.${ext}`;
-  const storageKey = input.projectId ? projectObjectKey(input.projectId, name) : storyObjectKey(input.storyId!, name);
+  let storageKey: string;
+  if (input.projectId) {
+    const [p] = await db
+      .select({ storyId: projects.storyId, episodeNumber: projects.episodeNumber, version: projects.version, episodeId: projects.episodeId })
+      .from(projects)
+      .where(eq(projects.id, input.projectId));
+    storageKey =
+      p?.storyId && p.episodeId
+        ? episodeObjectKey(p.storyId, p.episodeNumber, p.version, name)
+        : projectObjectKey(input.projectId, name);
+  } else {
+    storageKey = storyObjectKey(input.storyId!, name);
+  }
   const [row] = await db
     .insert(assets)
     .values({

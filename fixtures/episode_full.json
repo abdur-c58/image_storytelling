@@ -1,7 +1,11 @@
 {
-  "schema_version": "2.2",
+  "schema_version": "2.3",
   "doc_type": "episode",
   "story_id": "rooftop-test",
+  "story_title": "Rooftop Test Story",
+  "episode_number": 1,
+  "episode_title": "The Roof",
+  "is_finale": false,
   "series": {
     "episode_number": 1,
     "episode_title_short": "The Roof",

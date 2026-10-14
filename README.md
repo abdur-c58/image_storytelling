@@ -2,7 +2,7 @@
 
 Paste a story bible once, then one episode JSON per video, and get a finished YouTube video: AI images (Google Flow, via the Grok bot) kept consistent by approved location and character masters, Fish Audio narration with voice tags, licensed sound effects, Remotion cards and thumbnail, a loudness-checked mix, a sentence-driven crop render, and an upload to YouTube Studio (also via the bot).
 
-Documents use schema **2.2** (`story_bible`, `episode`, or a `bundle` of both); 2.0 and 2.1 documents are still accepted. What changed from 1.0, in 2.1 (dialogue, recurring cast, character status) and in 2.2 (viewer identification, name cards, segment roles), is in `docs/SCHEMA_V2_CHANGELOG.md`.
+Documents use schema **2.3** (`story_bible`, `episode`, or a `bundle` of both); 2.0–2.2 documents are still accepted. What changed from 1.0, in 2.1 (dialogue, recurring cast, character status), 2.2 (viewer identification, name cards, segment roles) and 2.3 (story folders, episode header, versions), is in `docs/SCHEMA_V2_CHANGELOG.md`.
 
 ```text
              paste JSON                               poll over HTTPS (outbound only)
@@ -20,18 +20,36 @@ Documents use schema **2.2** (`story_bible`, `episode`, or a `bundle` of both); 
 
 Nothing calls into the bot or the worker; both poll the site, so the PC needs no tunnel or open port.
 
+## Story folders
+
+Every story is a folder: **Stories › The Rising › Ep 1: Day 1**. The left sidebar lists stories and their episodes with a status dot (draft, in progress, awaiting bot, ready, published, failed); it can be collapsed and remembers which stories are open.
+
+- **`/stories`**: every story with its episode count (of `total_episodes_planned`), a status roll-up, last activity and the latest thumbnail as a cover. Search, grid/list, **Show archived**, **Trash**, and **New story** (a name and an editable id; the folder starts empty).
+- **`/stories/{id}`**: three tabs. **Episodes**: the numbered list (status, runtime, version, YouTube link, gap markers, "needs revalidation" flags), **Add episode** (paste or drop; disabled with "Add the story bible first" until the folder has a bible) and the "Context for episode N" block for Claude. **Story bible**: cast, location state history, masters, story state (copy/download), the bible JSON and the log. **Settings**: rename (the id never changes), description, default overrides, archive, move to trash.
+- **`/stories/{id}/episodes/{n}`**: the episode page (pipeline, outputs, segments, log) with a version switcher, **Set active**, **Duplicate as new version**, **Download JSON**, and downloads for the MP4, thumbnail and description.
+- **`/new`** stays a global paste box: every document files itself by `story_id` and `episode_number`, after a confirmation ("This will add Episode 3 'The Knock' to The Rising"). Dropping files on `/stories` or a story's Episodes tab does the same. Inside a folder, files for another story are refused.
+
+**Versions.** Pasting an episode number that already exists stores **version 2** (then 3, …) after a confirmation that shows what changed. Exactly one version is active; the others are kept, stopped and viewable. Nothing is overwritten.
+
+**Continuity across episodes.** Each episode's end state is stored as a snapshot once it validates. Episode N is validated against the snapshot of episode N−1 (or the bible's starting state), so episode 2 can be added while episode 1 is still rendering. When an earlier episode gets a new active version or is deleted, later episodes are re-checked in order: they are never deleted, and those that now fail are flagged "needs revalidation" with the errors. A skipped number is allowed with a warning.
+
+**Trash.** Moving a story to the trash needs its name typed, stops its episodes and cancels its queued bot and worker tasks. It can be restored for 30 days; the daily cron then deletes it with all files.
+
+**Files** are stored per folder: `stories/{id}/ep{NN}/v{V}/…` for episode outputs and `stories/{id}/masters/…` for masters. Bot and worker tasks carry `story_id`, `story_title`, `episode_number`, `episode_title`, `version` and `output_basename` (e.g. `the-rising-ep03-v2-the-knock`), which also name the downloads and the worker's work folders.
+
 ## Stories
 
-A **story** (`/stories`) holds the story bible: characters with outfits, locations with states, camera angles and props, world variables (day, weather, supplies), style and voice/crop defaults. Its own states:
+A **story** holds the story bible: characters with outfits, locations with states, camera angles and props, world variables (day, weather, supplies), style and voice/crop defaults. Its own states:
 
 | Story state | Meaning |
 |---|---|
+| `NO_BIBLE` | Empty folder made with **New story**; paste the bible next. |
 | `STORY_VALIDATED` | Bible stored. |
 | `LOCATION_MASTERS_REQUESTED` | The bot is making masters: an empty plate of every location × state × angle, a sheet of every character × outfit, and one picture of every character group. |
 | `MASTERS_REVIEW` | Masters uploaded; approve or regenerate them on the Story page (prompts and "must match" landmarks are shown). |
 | `MASTERS_APPROVED` | All approved. Episodes waiting on them continue. |
 
-Episodes are validated against the story's **state**: locations change state only through `state_changes`, world variables stay consistent, characters appear from their first episode. When an episode is published, its end state is committed to the story (or commit it by hand); the Story page shows and exports it and gives the "Context for episode N" block for Claude. New things an episode introduces (`bible_additions`) are merged into the story and get masters too. With `automation.approval_gates.location_masters: false` there are no masters and nothing waits.
+Episodes are validated against the story's **state**: locations change state only through `state_changes`, world variables stay consistent, characters appear from their first episode. The state after each episode comes from its active version's snapshot (see above); the story's Bible tab shows and exports it, and the Episodes tab gives the "Context for episode N" block for Claude. New things an episode introduces (`bible_additions`) are merged into the story and get masters too. With `automation.approval_gates.location_masters: false` there are no masters and nothing waits.
 
 The story state also tracks each character's **status** (with you, separated, missing, captive, returned, unknown, deceased), changed by an episode's `character_status_changes`. Absent characters can only appear in flashbacks, over radio or phone, or in written notes. The Story page's **Cast** panel shows each character's status, scope and voice. Use **Test voice** there to hear a short sample in that voice (a `voice_sample` worker task), and **Add to channel cast** to make a character recurring.
 
@@ -60,7 +78,7 @@ Voice: `narration` is clean text; `tts_text` carries Fish Drama 3 tags (`[pause]
 
 Dialogue: a segment can have `lines[]` (narrator and characters) instead of `narration`. Each line is spoken in its speaker's Fish voice, normalised to the voice target plus the speaker's `gain_db`, passed through its `voice_effect` (radio, phone, muffled, echo, memory; ffmpeg chains in the worker's `voice_effects.json`) and normalised again. Lines are joined with 350 ms gaps between narrator and dialogue and 220 ms between characters. The voice file is still one per segment, and the worker reports where each line starts and ends. The project page shows each line with a speaker chip, its effect and its own player. Crops prefer to start and end on a speaker change and lean toward the on-screen speaker.
 
-To start episodes without the editor, drop one or more story bible, episode or bundle JSON files onto the **Projects** page (or use **Choose files**). Story bibles are saved first. A dialog asks how automation should run: **Run to YouTube** (no stops), **Review before publishing** (waits for your approval before upload), **Import only** (draft), or **Use each file's own settings**. If a series/episode number already exists, it offers to replace it (the old project is archived and its queued tasks cancelled). Invalid files are listed with their first error and a **Fix in editor** button.
+To start episodes without the editor, drop one or more story bible, episode or bundle JSON files onto **Stories** or a story's Episodes tab (or use **Choose files** / **Paste JSON**). Each file is shown with what it will do (new story, new episode, or new version with a diff) and its warnings. Story bibles are saved first. A dialog asks how automation should run: **Run to YouTube** (no stops), **Review before publishing** (waits for your approval before upload), **Import only** (draft), or **Use each file's own settings**. Invalid files are listed with their errors and a **Fix in editor** button.
 
 Stages run as soon as their inputs exist, so several can be active at once; the badge shows the furthest one. Every step is resumable: tasks are leased with heartbeats; a crashed agent's lease expires and the task is retried with backoff, then dead-lettered. Outputs are content-addressed (sha256), so re-runs skip work that already exists. The project page can regenerate one image, one voice line, the thumbnail, re-roll crops, or swap an SFX choice, and only the affected downstream stages re-run. Each picture has a prompt inspector showing the pieces its prompt was assembled from (style, location anchor, state, angle, world, characters, scene) and the masters sent as references.
 
@@ -77,7 +95,8 @@ Stages run as soon as their inputs exist, so several can be active at once; the 
 | `bot/RUNBOOK.md` | Instructions for the Grok bot (served at `/api/bot/runbook`). |
 | `scripts/fake-bot.ts` | Stand-in bot for testing (placeholder images, fake YouTube URL). |
 | `scripts/e2e-dry-run.ts` | Full end-to-end test. |
-| `fixtures/` | `story_bible_example.json`, `episode_minimal.json`, `episode_full.json`; the 1.0 examples are in `fixtures/v1/`. |
+| `scripts/migrate-v23.ts` | Optional: moves files stored before story folders into the folder layout. |
+| `fixtures/` | `story_bible_example.json` with `episode_1.json` and `episode_2.json` (one story, two episodes), `episode_minimal.json`, `episode_full.json`, and `story_bible_second.json` with `episode_second_story_1.json` (a second, independent story); the 1.0 examples are in `fixtures/v1/`. |
 | `docs/` | `CLAUDE_SCRIPT_CONTRACT.md` (give this to Claude when writing stories and episodes), `SCHEMA_V2_CHANGELOG.md`, `EXISTING_SERVER_AUDIT.md`. |
 
 ## Local development
@@ -100,7 +119,7 @@ With no `DATABASE_URL` the site uses an embedded PGlite database in `.data/pglit
 npm run e2e
 ```
 
-Starts a throwaway site, the fake bot and the worker with `DRY_RUN=1`, posts `fixtures/story_bible_example.json` + `fixtures/episode_minimal.json` as a bundle, approves the masters through the admin API when they arrive, runs to `PUBLISHED`, and checks the final MP4 with ffprobe (H.264 1920×1080 + AAC), that a crop plan was written, and that the story state was committed. Takes about a minute. `npm run e2e -- fixtures/episode_full.json --all-features` runs the full example (state changes, bible additions, reuse, cards) with burned-in captions and an outro; `--no-masters` switches the masters gate off. Render/publish gates are switched off for the run. Output stays in `.data/e2e-<timestamp>/`. To watch it in the browser instead, run `npm run dev` with `DRY_RUN=1`, then in two more terminals:
+Starts a throwaway site, the fake bot and the worker with `DRY_RUN=1`, posts `fixtures/story_bible_example.json` + `fixtures/episode_minimal.json` as a bundle, approves the masters through the admin API when they arrive, runs to `PUBLISHED`, and checks the final MP4 with ffprobe (H.264 1920×1080 + AAC), that a crop plan was written, that the story state was committed, that the story folder pages render, and that the final video sits under `stories/rooftop-test/ep01/v1/`. Takes about a minute. `npm run e2e -- fixtures/episode_full.json --all-features` runs the full example (state changes, bible additions, reuse, cards) with burned-in captions and an outro; `--no-masters` switches the masters gate off. Render/publish gates are switched off for the run. Output stays in `.data/e2e-<timestamp>/`. To watch it in the browser instead, run `npm run dev` with `DRY_RUN=1`, then in two more terminals:
 
 ```powershell
 $env:BOT_TOKEN="<bot token>"; npm run fake-bot
@@ -116,6 +135,19 @@ npm run typecheck
 npm run e2e
 ```
 
+## Upgrading to 2.3 (story folders)
+
+Migration `drizzle/0005_story_folders.sql` (applied by `AUTO_MIGRATE=1` or `npm run db:migrate`) runs in one transaction:
+
+- Every project becomes a version of an episode: projects with the same story and episode number become versions 1, 2, … in creation order. The newest one that wasn't archived is active; the others are stopped (archived) and their queued tasks cancelled.
+- Projects without a story go to a new **Unsorted** story (`unsorted`), numbered 1, 2, … by creation date. Migrated episodes and versions are marked "migrated".
+- Each project's `outputs.story_state_end` becomes its snapshot. Archived stories keep `status: archived`.
+- `0006` drops the old `stories.archived` column.
+
+Existing files keep working where they are (rows keep their storage keys). To move them into the folder layout, run `node --conditions=react-server --import tsx scripts/migrate-v23.ts` (lists what would move), then with `--apply` (copy, verify size, update rows) and optionally `--delete-old`.
+
+**Rollback.** Back up the database first (Supabase: Database → Backups, or `pg_dump`). Before `--delete-old`, a code rollback only needs the database restored: the old files are still in place. The schema can't be rolled back by a down migration (drizzle has none); restore the backup and deploy the previous commit. Don't run `--delete-old` until the new version has run for a while.
+
 ## Production setup
 
 1. **Supabase**: create a project. Use the *transaction pooler* connection string (port 6543) as `DATABASE_URL`. Either set `AUTO_MIGRATE=1` or run `npm run db:migrate` once against the *direct* connection string.
@@ -125,7 +157,7 @@ npm run e2e
    [{ "AllowedOrigins": ["https://your-app.vercel.app"], "AllowedMethods": ["GET", "PUT", "HEAD"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
    ```
 
-3. **Vercel**: import the repo, set the variables from `.env.example` (`SESSION_SECRET`, `ADMIN_PASSWORD`, `APP_BASE_URL`, `CRON_SECRET`, database and R2). `vercel.json` schedules `/api/cron/maintenance` daily (expired leases, intermediate clean-up).
+3. **Vercel**: import the repo, set the variables from `.env.example` (`SESSION_SECRET`, `ADMIN_PASSWORD`, `APP_BASE_URL`, `CRON_SECRET`, database and R2). `vercel.json` schedules `/api/cron/maintenance` daily (expired leases, intermediate clean-up, purging stories that have been in the trash for 30 days).
 4. **Tokens**: sign in, open **Settings → Tokens**, create one `worker` token and one `bot` token. They are shown once and stored hashed. Revoke and recreate to rotate.
 5. **Worker** (GPU PC, `..\story-telling-worker`): copy its `.env.example` to `.env`, fill `APP_BASE_URL` and `WORKER_TOKEN`, then (from this repo, or `python -m slideshow_worker selfcheck|run` inside the worker folder):
 

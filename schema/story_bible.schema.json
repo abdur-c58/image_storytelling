@@ -1,7 +1,7 @@
 {
   "$id": "https://slideshow-storytelling.local/schema/story_bible.schema.json",
-  "title": "Story bible (schema 2.0)",
-  "description": "One per story: channel, style, characters with outfits, locations with states/angles/props, world variables, voice/audio/render/crop defaults. Cross-field rules (unique ids, base states, enum values) are enforced by the site's validator; see docs/CLAUDE_SCRIPT_CONTRACT.md.",
+  "title": "Story bible (schema 2.3)",
+  "description": "One per story folder: channel, style, characters with outfits, locations with states/angles/props, world variables, voice/audio/render/crop defaults. Cross-field rules (unique ids, base states, enum values) are enforced by the site's validator; see docs/CLAUDE_SCRIPT_CONTRACT.md.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
@@ -10,7 +10,8 @@
       "enum": [
         "2.0",
         "2.1",
-        "2.2"
+        "2.2",
+        "2.3"
       ]
     },
     "doc_type": {
@@ -26,6 +27,10 @@
     "story_title": {
       "type": "string",
       "minLength": 1
+    },
+    "story_description": {
+      "default": "",
+      "type": "string"
     },
     "total_episodes_planned": {
       "default": null,

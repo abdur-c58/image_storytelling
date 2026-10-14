@@ -193,7 +193,8 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
         .map((a) => a.meta as unknown as SfxCredit)
         .filter((m) => m && typeof m.license === "string");
       const duration = Number(result.duration_sec ?? 0);
-      const final = finalizeDescription(ep, starts, duration, credits);
+      const { seriesNavFor } = await import("./folders");
+      const final = finalizeDescription(ep, starts, duration, credits, await seriesNavFor(db, projectId));
       if (final.chapters_problem) {
         await logEvent(db, projectId, task.id, "warning", `Chapters left out of the description: ${final.chapters_problem}`);
       }
@@ -203,6 +204,7 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
           outputs: {
             ...(project.outputs as object),
             description: final.description,
+            description_template: final.template,
             description_bytes: final.bytes,
             description_error: final.error,
             chapters: final.chapters,
@@ -225,6 +227,8 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
         })
         .where(eq(projects.id, projectId));
       await logEvent(db, projectId, task.id, "info", `Published: ${String(result.youtube_url ?? "(no URL returned)")}`);
+      const { refreshNeighbourNav } = await import("./folders");
+      await refreshNeighbourNav(db, projectId);
       break;
     }
     default:

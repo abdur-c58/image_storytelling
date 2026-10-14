@@ -1,0 +1,85 @@
+{
+  "schema_version": "2.3",
+  "doc_type": "episode",
+  "story_id": "rooftop-test",
+  "story_title": "Rooftop Test Story",
+  "episode_number": 2,
+  "episode_title": "The Knock",
+  "is_finale": false,
+  "series": {
+    "recap_of_previous": "You barricaded the stairwell door."
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2,
+      "remotion": {
+        "template": "title_card",
+        "props": {
+          "title": "DAY 2",
+          "background": "dark"
+        }
+      }
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "narration": "The door is still wedged shut. Three slow knocks come from the other side.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "barricaded",
+        "camera_angle_id": "a",
+        "world_state": {
+          "day": 2,
+          "weather": "clear"
+        },
+        "characters_present": [
+          {
+            "character_id": "protagonist",
+            "pose_or_action": "staring at the barricaded door",
+            "position_in_frame": "center"
+          }
+        ],
+        "include_channel_cameo": true
+      },
+      "image": {
+        "prompt": "The barricaded red door, morning light"
+      }
+    }
+  ],
+  "thumbnail": {
+    "image_prompt": "The protagonist staring at a barricaded red door",
+    "scene": {
+      "location_id": "rooftop",
+      "state_id": "barricaded",
+      "camera_angle_id": "a",
+      "world_state": {
+        "day": 2,
+        "weather": "clear"
+      }
+    },
+    "characters_present": [
+      "protagonist"
+    ],
+    "text_layers": [
+      {
+        "text": "WHO'S THERE?",
+        "style": "impact_white_black_outline",
+        "position": "top_center",
+        "max_font_size_px": 200
+      }
+    ]
+  },
+  "youtube": {
+    "description": "Day two.\n\n{{chapters}}\n\n{{series_nav}}\n\n{{sfx_credits}}",
+    "tags": [
+      "story"
+    ],
+    "visibility": "private"
+  }
+}

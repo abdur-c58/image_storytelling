@@ -293,7 +293,18 @@ export function MasterCard({ storyId, master }: { storyId: string; master: Maste
   );
 }
 
-export function DeleteStoryButton({ storyId, episodes }: { storyId: string; episodes: number }) {
+/** Move to the trash (30-day restore), or delete forever from the trash. Both need the story's name typed. */
+export function DeleteStoryButton({
+  storyId,
+  title,
+  episodes,
+  forever = false,
+}: {
+  storyId: string;
+  title: string;
+  episodes: number;
+  forever?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -307,58 +318,128 @@ export function DeleteStoryButton({ storyId, episodes }: { storyId: string; epis
   return (
     <>
       <button type="button" className="btn text-bad hover:border-bad" onClick={() => setOpen(true)}>
-        Delete story
+        {forever ? "Delete forever" : "Move to trash"}
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" onClick={() => !pending && setOpen(false)}>
-          <div
+          <form
             role="dialog"
             aria-modal="true"
+            aria-labelledby="delete-story-title"
             className="w-full max-w-lg rounded-2xl border border-bad/40 bg-background p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError(null);
+              start(async () => {
+                const res = await deleteStoryAction(storyId, typed, forever);
+                if (res?.error) setError(res.error);
+              });
+            }}
           >
-            <h2 className="text-2xl font-bold tracking-tight">Delete this story?</h2>
-            {episodes > 0 ? (
-              <p className="mt-3 text-sm text-warn">
-                It still has {episodes} episode{episodes === 1 ? "" : "s"}. Delete those projects first.
-              </p>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setError(null);
-                  start(async () => {
-                    const res = await deleteStoryAction(storyId, typed);
-                    if (res?.error) setError(res.error);
-                  });
-                }}
-              >
-                <p className="mt-3 text-sm font-light text-muted">
-                  This removes the story bible, its story state and every master image. Type{" "}
-                  <span className="font-mono text-foreground">{storyId}</span> to confirm.
-                </p>
-                <input autoFocus className="input mt-3 w-full" value={typed} onChange={(e) => setTyped(e.target.value)} disabled={pending} />
-                {error && <p className="mt-2 text-sm text-bad">{error}</p>}
-                <div className="mt-6 flex justify-end gap-2">
-                  <button type="button" className="btn" onClick={() => setOpen(false)} disabled={pending}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn border-bad bg-bad text-white disabled:opacity-40" disabled={typed.trim() !== storyId || pending}>
-                    {pending ? "Deleting…" : "Delete forever"}
-                  </button>
-                </div>
-              </form>
-            )}
-            {episodes > 0 && (
-              <div className="mt-6 flex justify-end">
-                <button type="button" className="btn" onClick={() => setOpen(false)}>
-                  Close
-                </button>
-              </div>
-            )}
-          </div>
+            <h2 id="delete-story-title" className="text-2xl font-bold tracking-tight">
+              {forever ? "Delete this story forever?" : "Move this story to the trash?"}
+            </h2>
+            <p className="mt-3 text-sm font-light text-muted">
+              {forever
+                ? `This removes the story bible, its ${episodes} episode${episodes === 1 ? "" : "s"} with every version, rendered files and master images. It can't be undone.`
+                : `Its ${episodes} episode${episodes === 1 ? "" : "s"} stop and queued bot tasks are cancelled. You can restore it from the trash for 30 days; after that it is deleted with all files.`}{" "}
+              Type <span className="font-mono text-foreground">{title}</span> to confirm.
+            </p>
+            <input autoFocus className="input mt-3 w-full" value={typed} onChange={(e) => setTyped(e.target.value)} disabled={pending} aria-label="Story name" />
+            {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" className="btn" onClick={() => setOpen(false)} disabled={pending}>
+                Cancel
+              </button>
+              <button type="submit" className="btn border-bad bg-bad text-white disabled:opacity-40" disabled={typed.trim() !== title.trim() || pending}>
+                {pending ? "Deleting…" : forever ? "Delete forever" : "Move to trash"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </>
+  );
+}
+
+export function RestoreStoryButton({ storyId }: { storyId: string }) {
+  return <StoryActionButton storyId={storyId} action={{ kind: "restore" }} label="Restore" primary />;
+}
+
+/** Rename (title only; the story_id never changes), description and per-story default overrides. */
+export function StorySettingsForm({
+  storyId,
+  title,
+  description,
+  defaultsOverride,
+}: {
+  storyId: string;
+  title: string;
+  description: string;
+  defaultsOverride: string;
+}) {
+  const [name, setName] = useState(title);
+  const [desc, setDesc] = useState(description);
+  const [overrides, setOverrides] = useState(defaultsOverride);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [pending, start] = useTransition();
+  const save = () =>
+    start(async () => {
+      setError(null);
+      setSaved(false);
+      let parsed: unknown = {};
+      try {
+        parsed = overrides.trim() ? JSON.parse(overrides) : {};
+      } catch {
+        setError("Default overrides must be valid JSON.");
+        return;
+      }
+      if (name.trim() !== title) {
+        const res = await storyAction(storyId, { kind: "rename", title: name.trim() });
+        if (res.error) return setError(res.error);
+      }
+      const res = await storyAction(storyId, { kind: "settings", description: desc, defaultsOverride: parsed });
+      if (res.error) return setError(res.error);
+      setSaved(true);
+    });
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted">Name</span>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
+        <span className="text-xs font-light text-muted">
+          Only the display title changes. The story id <span className="font-mono">{storyId}</span> stays, and episodes keep referring to it.
+        </span>
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted">Description</span>
+        <textarea className="input h-24" value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={2000} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted">Default overrides (JSON, merged over the bible&apos;s defaults for new episodes)</span>
+        <textarea
+          className="input h-40 font-mono text-xs"
+          value={overrides}
+          onChange={(e) => setOverrides(e.target.value)}
+          spellCheck={false}
+          placeholder='{ "audio": { "music_bed": "none" } }'
+        />
+      </label>
+      {error && <p className="text-sm text-bad">{error}</p>}
+      {saved && !error && <p className="text-sm text-ok">Saved.</p>}
+      <div>
+        <button type="submit" className="btn-primary" disabled={pending}>
+          {pending ? "Saving…" : "Save settings"}
+        </button>
+      </div>
+    </form>
   );
 }

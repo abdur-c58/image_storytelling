@@ -51,6 +51,7 @@ export async function saveVoiceSettings(db: Db, next: VoiceSettings): Promise<vo
 export async function setStoryVoice(db: Db, storyId: string, speaker: string, voiceId: string): Promise<void> {
   const [story] = await db.select().from(stories).where(eq(stories.id, storyId));
   if (!story) throw new Error("Story not found.");
+  if (!story.bible) throw new Error("Add the story bible first.");
   const bible = story.bible as StoryBible;
   if (speaker !== NARRATOR && !bible.characters.some((c) => c.id === speaker && c.voice)) {
     throw new Error(`${speaker} has no voice in the story bible, so it can't speak.`);
@@ -91,6 +92,7 @@ export function applyVoiceSettings(
 export async function storyVoices(db: Db, storyId: string) {
   const [story] = await db.select().from(stories).where(eq(stories.id, storyId));
   if (!story) throw new Error("Story not found.");
+  if (!story.bible) throw new Error("Add the story bible first.");
   const bible = story.bible as StoryBible;
   return applyVoiceSettings(speakerVoices(bible, bible.defaults.voice), {
     settings: await getVoiceSettings(db),

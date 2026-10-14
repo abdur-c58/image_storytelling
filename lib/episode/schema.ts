@@ -48,7 +48,7 @@ const slug = z
 
 const nonEmpty = z.string().trim().min(1, "Must not be empty.");
 const unit = z.number().min(0).max(1);
-const schemaVersion = z.enum(SUPPORTED_SCHEMA_VERSIONS, { error: `"schema_version" must be "2.2" (or "2.1" / "2.0").` });
+const schemaVersion = z.enum(SUPPORTED_SCHEMA_VERSIONS, { error: `"schema_version" must be "2.3" (or "2.2" / "2.1" / "2.0").` });
 
 // ── Shared blocks (story defaults, episode overrides) ───────────────────────
 
@@ -415,6 +415,8 @@ export const StoryBibleSchema = z.looseObject({
   doc_type: z.literal("story_bible"),
   story_id: slug,
   story_title: nonEmpty,
+  /** Shown on the story folder (2.3). */
+  story_description: z.string().default(""),
   total_episodes_planned: z.number().int().min(1).nullable().default(null),
   channel: ChannelSchema,
   style_bible: StyleBibleSchema,
@@ -660,10 +662,21 @@ export const CharacterStatusChangeSchema = z.looseObject({
   story_override: z.boolean().default(false),
 });
 
+/**
+ * Episode header (2.3): which story folder and episode number this file belongs to. Older documents carry
+ * the same facts in `series`; normalizeEpisodeHeader (lib/episode/header.ts) fills one from the other before
+ * parsing, so `series.episode_number` / `series.episode_title_short` / `series.is_finale` are always set.
+ */
 export const EpisodeDocSchema = z.looseObject({
   schema_version: schemaVersion,
   doc_type: z.literal("episode"),
   story_id: slug,
+  /** Informational: a mismatch with the stored title is a warning and the stored title wins. */
+  story_title: z.string().optional(),
+  episode_number: z.number().int().min(1).optional(),
+  /** Also the default YouTube title. */
+  episode_title: nonEmpty.optional(),
+  is_finale: z.boolean().optional(),
   series: SeriesSchema,
   segments: z.array(SegmentSchema).min(1, "At least one segment is required."),
   character_status_changes: z.array(CharacterStatusChangeSchema).default([]),

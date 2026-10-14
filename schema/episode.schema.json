@@ -1,7 +1,7 @@
 {
   "$id": "https://slideshow-storytelling.local/schema/episode.schema.json",
-  "title": "Episode (schema 2.0)",
-  "description": "One episode of a stored story (story_id). Continuity (scene states, world variables, outfits, first appearances), bible_additions, tts_text tags and YouTube limits are enforced by the site's validator; see docs/CLAUDE_SCRIPT_CONTRACT.md.",
+  "title": "Episode (schema 2.3)",
+  "description": "One episode of a stored story. The header (story_id, episode_number, episode_title) files it into its story folder. Continuity (scene states, world variables, outfits, first appearances), bible_additions, tts_text tags and YouTube limits are enforced by the site's validator; see docs/CLAUDE_SCRIPT_CONTRACT.md.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
@@ -10,7 +10,8 @@
       "enum": [
         "2.0",
         "2.1",
-        "2.2"
+        "2.2",
+        "2.3"
       ]
     },
     "doc_type": {
@@ -22,6 +23,21 @@
       "minLength": 1,
       "maxLength": 64,
       "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "story_title": {
+      "type": "string"
+    },
+    "episode_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "episode_title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_finale": {
+      "type": "boolean"
     },
     "series": {
       "type": "object",
@@ -60,10 +76,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "episode_number",
-        "episode_title_short"
-      ],
+      "required": [],
       "additionalProperties": {}
     },
     "segments": {
@@ -1231,9 +1244,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "title"
-      ],
+      "required": [],
       "additionalProperties": {}
     },
     "chapters": {
@@ -2382,10 +2393,11 @@
     "schema_version",
     "doc_type",
     "story_id",
-    "series",
     "segments",
     "thumbnail",
-    "youtube"
+    "youtube",
+    "episode_number",
+    "episode_title"
   ],
   "additionalProperties": {}
 }

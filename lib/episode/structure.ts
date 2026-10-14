@@ -1,4 +1,4 @@
-import { NAME_CARD_TEMPLATE, NARRATOR, PRONOUN_NAMES, ROLE_CHAPTER_TITLES } from "./constants";
+import { NAME_CARD_TEMPLATE, NARRATOR, PRONOUN_NAMES, ROLE_CHAPTER_TITLES, schemaAtLeast } from "./constants";
 import type { IssuePath, IssueSink } from "./continuity";
 import { estimateSegmentSeconds } from "./estimate";
 import { segmentLines } from "./lines";
@@ -232,7 +232,7 @@ export function checkStructure(
 ): StructureReport {
   const ordered = byOrder(doc.segments);
   const roles = ordered.map((s) => ({ segment_id: s.id, order: s.order, role: s.role, type: s.type, seconds: estimateSegmentSeconds(s, pauseMs) }));
-  const applies = doc.schema_version === "2.2" && structure.enabled;
+  const applies = schemaAtLeast(doc.schema_version, "2.2") && structure.enabled;
   const checks: StructureCheck[] = [];
   if (!applies) return { applies, roles, checks };
 

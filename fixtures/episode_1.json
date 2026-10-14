@@ -1,0 +1,121 @@
+{
+  "schema_version": "2.3",
+  "doc_type": "episode",
+  "story_id": "rooftop-test",
+  "story_title": "Rooftop Test Story",
+  "episode_number": 1,
+  "episode_title": "Day One",
+  "is_finale": false,
+  "series": {
+    "cliffhanger": "Someone knocks on the barricaded door.",
+    "next_episode_teaser": "Who is on the stairs?"
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2,
+      "remotion": {
+        "template": "title_card",
+        "props": {
+          "title": "DAY 1",
+          "background": "dark"
+        }
+      }
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "narration": "You climb to the roof of your tower. The city below is quiet.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "clear",
+        "camera_angle_id": "a",
+        "world_state": {
+          "day": 1,
+          "weather": "clear"
+        },
+        "characters_present": [
+          {
+            "character_id": "protagonist",
+            "pose_or_action": "looking at the skyline",
+            "position_in_frame": "center"
+          }
+        ],
+        "include_channel_cameo": true
+      },
+      "image": {
+        "prompt": "Empty streets far below, dusk light"
+      }
+    },
+    {
+      "id": "seg_003",
+      "order": 3,
+      "type": "illustration",
+      "narration": "You drag a filing cabinet against the stairwell door and wedge it shut.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "barricaded",
+        "camera_angle_id": "a",
+        "world_state": {
+          "day": 1,
+          "weather": "clear"
+        },
+        "characters_present": [
+          {
+            "character_id": "protagonist",
+            "pose_or_action": "pushing a filing cabinet against the door",
+            "position_in_frame": "center"
+          }
+        ],
+        "include_channel_cameo": true,
+        "state_changes": [
+          {
+            "location_id": "rooftop",
+            "from_state_id": "clear",
+            "to_state_id": "barricaded",
+            "cause": "You barricaded the stairwell door.",
+            "persist": true
+          }
+        ]
+      },
+      "image": {
+        "prompt": "Planks and a filing cabinet against the red door"
+      }
+    }
+  ],
+  "thumbnail": {
+    "image_prompt": "The protagonist pushing a cabinet against a red door",
+    "scene": {
+      "location_id": "rooftop",
+      "state_id": "barricaded",
+      "camera_angle_id": "a",
+      "world_state": {
+        "day": 1,
+        "weather": "clear"
+      }
+    },
+    "characters_present": [
+      "protagonist"
+    ],
+    "text_layers": [
+      {
+        "text": "DAY 1",
+        "style": "impact_white_black_outline",
+        "position": "top_center",
+        "max_font_size_px": 220
+      }
+    ]
+  },
+  "youtube": {
+    "description": "Day one on the roof.\n\n{{chapters}}\n\n{{series_nav}}\n\n{{sfx_credits}}",
+    "tags": [
+      "story"
+    ],
+    "visibility": "private"
+  }
+}
