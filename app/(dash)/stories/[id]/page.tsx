@@ -48,13 +48,14 @@ export default async function StoryPage({ params, searchParams }: PageProps<"/st
   const db = await getDb();
   const story = await getStory(db, storyId);
   if (!story) notFound();
-  const [list, taskRows] = await Promise.all([
+  const [list, taskRows, toReview] = await Promise.all([
     listEpisodes(db, storyId),
     db
       .select()
       .from(tasks)
       .where(and(eq(tasks.storyId, storyId), inArray(tasks.status, ["queued", "leased", "dead"])))
       .orderBy(desc(tasks.createdAt)),
+    db.$count(storyMasters, and(eq(storyMasters.storyId, storyId), eq(storyMasters.status, "generated"))),
   ]);
   const deleted = story.status === "deleted";
   const busy = taskRows.some((t) => t.status === "queued" || t.status === "leased");
@@ -89,6 +90,9 @@ export default async function StoryPage({ params, searchParams }: PageProps<"/st
           </p>
         </div>
         {deleted && <RestoreStoryButton storyId={storyId} />}
+        {!deleted && toReview > 0 && (
+          <StoryActionButton storyId={storyId} action={{ kind: "approve_all" }} label={`Approve all ${toReview} new masters`} primary />
+        )}
       </div>
 
       {deleted && (
@@ -410,12 +414,6 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
       <p className="text-sm font-light text-muted">
         {bible.characters.length} characters · {bible.scene_bible.locations.length} locations · bible version {story.bibleVersion}
       </p>
-      {counts.generated > 0 && !deleted && (
-        <div>
-          <StoryActionButton storyId={storyId} action={{ kind: "approve_all" }} label={`Approve all ${counts.generated} new masters`} primary />
-        </div>
-      )}
-
       <section className="card flex flex-col gap-3">
         <h2 className="eyebrow">
           Cast <span className="text-sm font-normal text-muted">(status after episode {state.committed_through_episode})</span>
@@ -460,12 +458,17 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
       </section>
 
       <section className="card flex flex-col gap-3">
-        <h2 className="eyebrow">
-          Masters{" "}
-          <span className="text-sm font-normal text-muted">
-            ({counts.approved}/{counts.total} approved{gateOn ? "" : ", gate off"})
-          </span>
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="eyebrow">
+            Masters{" "}
+            <span className="text-sm font-normal text-muted">
+              ({counts.approved}/{counts.total} approved{gateOn ? "" : ", gate off"})
+            </span>
+          </h2>
+          {counts.generated > 0 && !deleted && (
+            <StoryActionButton storyId={storyId} action={{ kind: "approve_all" }} label={`Approve all ${counts.generated} new`} primary />
+          )}
+        </div>
         <p className="text-sm font-light text-muted">
           Character sheets, group sheets and empty plates of every location state and angle. Approved masters are sent to the bot as
           reference images for every episode picture they appear in.
