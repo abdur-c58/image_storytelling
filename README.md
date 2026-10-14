@@ -96,7 +96,7 @@ Stages run as soon as their inputs exist, so several can be active at once; the 
 | `scripts/fake-bot.ts` | Stand-in bot for testing (placeholder images, fake YouTube URL). |
 | `scripts/e2e-dry-run.ts` | Full end-to-end test. |
 | `scripts/migrate-v23.ts` | Optional: moves files stored before story folders into the folder layout. |
-| `fixtures/` | `story_bible_example.json` with `episode_1.json` and `episode_2.json` (one story, two episodes), `episode_minimal.json`, `episode_full.json`, and `story_bible_second.json` with `episode_second_story_1.json` (a second, independent story); the 1.0 examples are in `fixtures/v1/`. |
+| `fixtures/` | `story_bible_example.json` with `episode_1.json` and `episode_2.json` (one story, two episodes), `episode_minimal.json`, `episode_full.json`, and `story_bible_second.json` with `episode_second_story_1.json` (a second, independent story), and `story_bible_the_rising.json` with `episode_01_the_rising.json` (silent cards with empty `lines`, `null` on optional fields); the 1.0 examples are in `fixtures/v1/`. |
 | `docs/` | `CLAUDE_SCRIPT_CONTRACT.md` (give this to Claude when writing stories and episodes), `SCHEMA_V2_CHANGELOG.md`, `EXISTING_SERVER_AUDIT.md`. |
 
 ## Local development

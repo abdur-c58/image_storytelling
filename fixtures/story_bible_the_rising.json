@@ -1,0 +1,129 @@
+{
+  "schema_version": "2.3",
+  "doc_type": "story_bible",
+  "story_id": "the-rising",
+  "story_title": "The Rising",
+  "story_description": "The river keeps rising, and your town is going under one street at a time.",
+  "total_episodes_planned": null,
+  "channel": {
+    "channel_name": "Test Channel",
+    "recurring_cameo": null
+  },
+  "style_bible": {
+    "global_style_prompt": "Flat 2D cartoon illustration, thick clean outlines, muted colours, simple shapes, storybook style",
+    "negative_prompt": null,
+    "aspect_ratio": "16:9",
+    "target_resolution": "1920x1080",
+    "source_image_min_width": null,
+    "palette_notes": null,
+    "reference_assets": null,
+    "multi_character_negative": null,
+    "flashback_treatment_prompt": null
+  },
+  "narrator": {
+    "pov": "second_person",
+    "pov_character_id": "you",
+    "voice": null,
+    "identification": {
+      "pov_character_id": null,
+      "min_on_screen_ratio": null,
+      "hard_min_on_screen_ratio": null,
+      "forbid_narrator_name": null,
+      "name_card": { "enabled": true, "episode": 1, "text": "THIS IS YOU", "template": "name_card" }
+    }
+  },
+  "characters": [
+    {
+      "id": "you",
+      "name": "You",
+      "role": "protagonist",
+      "scope": "story",
+      "visual_description": "a stick figure with a round white head, dot eyes and messy brown hair",
+      "outfit_states": [{ "id": "default", "description": "a yellow rain jacket and green rubber boots" }],
+      "reference_image_ids": null,
+      "first_appears_episode": 1,
+      "voice": null,
+      "voice_group": null,
+      "initial_status": null,
+      "aliases": null
+    },
+    {
+      "id": "ellis",
+      "name": "Ellis",
+      "role": "ally",
+      "scope": "story",
+      "visual_description": "an old stick figure with a white moustache and a flat cap",
+      "outfit_states": [{ "id": "default", "description": "a long grey wax coat" }],
+      "reference_image_ids": null,
+      "first_appears_episode": 1,
+      "voice": { "provider": null, "voice_id": "test-voice-ellis", "model": null, "speed": null, "gain_db": null, "style_notes": null, "pronunciation_overrides": null },
+      "voice_group": null,
+      "initial_status": null,
+      "aliases": null
+    }
+  ],
+  "character_groups": null,
+  "scene_bible": {
+    "world_variables": [
+      {
+        "id": "day",
+        "type": "integer",
+        "initial": 1,
+        "values": null,
+        "prompt_template": "Day {value} of the flood",
+        "applies_to_location_tags": null,
+        "monotonic": "increasing",
+        "max_step_per_segment": null
+      },
+      {
+        "id": "river_level",
+        "type": "enum",
+        "initial": "high",
+        "values": ["high", "flood"],
+        "prompt_template": "River: {value}",
+        "applies_to_location_tags": ["outdoor"],
+        "monotonic": null,
+        "max_step_per_segment": null
+      }
+    ],
+    "locations": [
+      {
+        "id": "house",
+        "name": "Your house",
+        "tags": ["indoor"],
+        "anchor_description": "a narrow two-storey terraced house with a steep staircase and a front window onto the street",
+        "fixed_landmarks": ["the steep wooden staircase", "a blue front door"],
+        "camera_angles": [
+          { "id": "a", "name": "Front room", "prompt": "wide shot of the front room from the back wall, window on the left" },
+          { "id": "b", "name": "Stairs", "prompt": "medium shot looking down the staircase towards the front door" }
+        ],
+        "states": [
+          { "id": "dry", "description": "dry floorboards, rug in place", "is_base": true, "derived_from": null },
+          { "id": "flooded", "description": "brown water covering the floor and the bottom stairs", "is_base": null, "derived_from": "dry" }
+        ],
+        "key_props": null
+      },
+      {
+        "id": "street",
+        "name": "Your street",
+        "tags": ["outdoor"],
+        "anchor_description": "a sloping street of terraced houses running down to the river",
+        "fixed_landmarks": ["a red post box on the corner"],
+        "camera_angles": [{ "id": "a", "name": "Downhill", "prompt": "wide shot looking down the street towards the river" }],
+        "states": [{ "id": "wet", "description": "rain-soaked, water running in the gutters", "is_base": true, "derived_from": null }],
+        "key_props": null
+      }
+    ]
+  },
+  "defaults": {
+    "voice": { "voice_id": "", "model": null, "speed": null, "style_notes": null },
+    "audio": null,
+    "render": null,
+    "crop_policy": null,
+    "structure": null
+  },
+  "automation": {
+    "approval_gates": { "location_masters": true },
+    "bot_triggers": null
+  }
+}

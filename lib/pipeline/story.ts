@@ -66,6 +66,15 @@ export async function episodeNumbers(db: Db, storyId: string): Promise<number[]>
   return rows.map((r) => r.n).sort((a, b) => a - b);
 }
 
+/** Titles of the episodes in a story folder, by number. */
+export async function episodeTitles(db: Db, storyId: string): Promise<Record<number, string>> {
+  const rows = await db
+    .select({ n: episodes.number, title: episodes.title })
+    .from(episodes)
+    .where(and(eq(episodes.storyId, storyId), isNotNull(episodes.activeVersionId)));
+  return Object.fromEntries(rows.map((r) => [r.n, r.title]));
+}
+
 /** Everything an episode of this story is validated against. Null for unknown, deleted or bible-less folders. */
 export async function loadStoryContext(db: Db, storyId: string): Promise<StoryContext | null> {
   const story = await getStory(db, storyId);
@@ -81,6 +90,7 @@ export async function loadStoryContext(db: Db, storyId: string): Promise<StoryCo
     approvedMasters: new Set(approved.map((r) => r.key)),
     mastersGate: mastersGateOn(bible),
     existingEpisodes: await episodeNumbers(db, storyId),
+    episodeTitles: await episodeTitles(db, storyId),
   };
 }
 

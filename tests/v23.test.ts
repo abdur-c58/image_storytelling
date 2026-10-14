@@ -85,7 +85,8 @@ describe("episode header (2.3)", () => {
     const n = normalizeEpisodeHeader(ep).raw as Raw;
     expect(n.series.episode_number).toBe(1);
     expect(n.series.episode_title_short).toBe("Day One");
-    expect(n.youtube.title).toBe("Day One");
+    expect(n.youtube.title).toBe("Rooftop Test Story Ep. 1: Day One");
+    expect((normalizeEpisodeHeader(ep, [], { storyTitle: "Renamed" }).raw as Raw).youtube.title).toBe("Renamed Ep. 1: Day One");
 
     delete ep.episode_number;
     delete ep.episode_title;
@@ -165,7 +166,7 @@ describe("story folders", () => {
     const out = await ok(bundle);
     expect(out).toMatchObject({ storyId: "bundle-test", version: 1, bible: "created" });
     const p = await version(out.projectId!);
-    expect(p.episode).toMatchObject({ youtube: { playlist: "Bundle Test", title: "Day One" } });
+    expect(p.episode).toMatchObject({ youtube: { playlist: "Bundle Test", title: "Bundle Test Ep. 1: Day One" } });
   });
 
   it("keeps stories independent", async () => {
@@ -414,5 +415,69 @@ describe("migration 0005 (story folders)", () => {
       { number: 2, version_counter: 1, migrated: true },
     ]);
     await pg.close();
+  });
+});
+
+describe("silent cards, nulls and episode titles", () => {
+  it("accepts story_bible_the_rising.json and episode_01_the_rising.json as pasted", async () => {
+    const bible = await ok(fixture("story_bible_the_rising.json"));
+    expect(bible.storyId).toBe("the-rising");
+
+    const out = await ok(fixture("episode_01_the_rising.json"));
+    const p = await version(out.projectId!);
+    const ep = p.episode as Raw;
+    expect(ep.episode_title).toBe("The Water Comes");
+    expect(ep.youtube.title).toBe("The Rising Ep. 1: The Water Comes");
+    expect(ep.youtube.category).toBe("Entertainment");
+    const cards = ep.segments.filter((s: Raw) => s.silent);
+    expect(cards.map((s: Raw) => s.id)).toEqual(["seg_001", "seg_003", "seg_004", "seg_008"]);
+    for (const s of cards) expect(s).toMatchObject({ lines: null, narration: "" });
+    expect(ep.segments[1].sfx[0].placement).toBe("segment_start");
+
+    const tree = (await folderTree(db)).find((s) => s.id === "the-rising")!;
+    expect(tree.episodes).toMatchObject([{ number: 1, title: "The Water Comes" }]);
+  });
+
+  it("a silent card with empty lines and no narration is valid; a spoken one is not", async () => {
+    const ep = json("episode_1.json");
+    delete ep.segments[0].narration;
+    ep.segments[0].lines = [];
+    const r = validateText(JSON.stringify(ep), { story: { bible: (await getStory(db, "rooftop-test"))!.bible as never, state: null } });
+    expect(r.errors.map((e) => e.message)).toEqual([]);
+
+    ep.segments[0].silent = false;
+    const bad = validateText(JSON.stringify(ep));
+    expect(bad.errors.map((e) => `${e.path_text} ${e.message}`)).toContain(
+      'segments[0].narration seg_001: a segment that is not silent needs "narration" or at least one entry in "lines" (or set "silent": true).',
+    );
+  });
+
+  it("null counts as missing on optional fields; required fields stay strict and name the segment and field", () => {
+    const ep = json("episode_1.json");
+    ep.segments[1].role = null;
+    ep.segments[1].sfx = null;
+    ep.youtube.tags = null;
+    expect(validateText(JSON.stringify(ep)).errors).toEqual([]);
+
+    ep.segments[1].scene.location_id = null;
+    ep.segments[2].id = null;
+    const messages = validateText(JSON.stringify(ep)).errors.map((e) => e.message);
+    expect(messages.some((m) => m.startsWith("seg_002: scene.location_id: "))).toBe(true);
+    expect(messages.some((m) => m.startsWith("segment 3: id: "))).toBe(true);
+  });
+
+  it("episode_title is required and non-empty, and duplicates in a story are a warning", async () => {
+    const ep = json("episode_1.json");
+    ep.episode_title = "  ";
+    expect(validateText(JSON.stringify(ep)).errors.map((e) => e.message)).toContain('"episode_title" must not be empty.');
+    ep.episode_title = null;
+    const nullTitle = validateText(JSON.stringify(ep)).errors.map((e) => e.message);
+    expect(nullTitle.filter((m) => m.includes("episode_title"))).toEqual(['"episode_title" is required in the 2.3 episode header.']);
+
+    const second = json("episode_01_the_rising.json");
+    second.episode_number = 2;
+    second.segments[0].role = "main";
+    const plan = await planIngest(db, JSON.stringify(second));
+    expect(plan.warnings).toContain("episode_title 'The Water Comes' is already used by Episode 1 of this story. Episode titles should be unique.");
   });
 });

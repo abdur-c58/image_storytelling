@@ -286,7 +286,7 @@ Re-pasting an identical bible is a no-op. Before a story has episodes the bible 
 `story_id` (required, the story must exist), `story_title` (informational), `episode_number` (integer ≥ 1, required in 2.3), `episode_title` (required in 2.3), `is_finale` (optional), all at the top level.
 
 - Older documents keep `episode_number`, `episode_title_short` and `is_finale` in `series`. Before parsing, each form is filled from the other (`lib/episode/header.ts`). If both are present and disagree, it is an error.
-- `youtube.title` defaults to `episode_title`. `youtube.playlist` defaults to the story title.
+- `youtube.title` defaults to "{story_title} Ep. {episode_number}: {episode_title}" (the stored story title wins). `youtube.playlist` defaults to the story title.
 - A `story_title` that differs from the stored title is a warning: "This episode's story_title 'The Rising' differs from the stored title 'Rising'. Using the stored title."
 - A skipped number is a warning: "Episode 4 was added while Episode 3 is missing. State continuity is computed from Episode 2."
 - New description placeholder `{{series_nav}}`: "Episode N of M" plus "Previous: …" / "Next: …" lines for neighbours that are already on YouTube. It is filled at render time and refreshed in the stored description of unpublished neighbours when an episode is published.
@@ -313,6 +313,13 @@ Re-pasting an identical bible is a no-op. Before a story has episodes the bible 
 
 - New files: `stories/{id}/ep{NN}/v{V}/…` and `stories/{id}/masters/…`. Old keys stay valid. `scripts/migrate-v23.ts` moves them (dry run by default).
 - Every bot and worker task carries `story_id`, `story_title`, `episode_number`, `episode_title`, `version` and `output_basename`. The worker uses them for work folders (`work/tasks/{story}/ep{NN}/v{V}/…`), log lines and the rendered file name. The fake bot logs them, and the RUNBOOK explains them (they are never metadata).
+
+## 2.3-6. Validation fixes
+
+- A `silent: true` segment of any type (including `title_card` and `infographic`) is valid with `"lines": []` and no `narration`. Only segments that are not silent need `narration` or at least one line. `"lines": []` is treated as no lines.
+- On every optional field, `null` is the same as a missing key (the default applies). Required fields stay strict: `null` there is an error.
+- `episode_title` is required and must not be empty. A title already used by another episode of the same story is a warning.
+- Schema errors inside a segment name the segment id and the field, e.g. "seg_002: scene.location_id: Invalid input: expected string, received null".
 
 ## 2.3 decisions and ambiguities
 

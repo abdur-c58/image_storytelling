@@ -3,7 +3,7 @@
 Give this file to Claude (or any writer) together with:
 
 - the JSON Schemas in `schema/` (`story_bible.schema.json`, `episode.schema.json`, `bundle.schema.json`; also served at `/api/schema?type=story_bible|episode|bundle`),
-- the examples in `fixtures/`: `story_bible_example.json`, `episode_1.json` and `episode_2.json` (two episodes of one story), `episode_minimal.json`, `episode_full.json` (every feature),
+- the examples in `fixtures/`: `story_bible_example.json`, `episode_1.json` and `episode_2.json` (two episodes of one story), `episode_minimal.json`, `episode_full.json` (every feature), `story_bible_the_rising.json` and `episode_01_the_rising.json` (silent cards with `"lines": []`, `null` on optional fields),
 - for episode 2 onwards, the **"Context for episode N"** block from the story's Episodes tab (story id and title, the next episode number, the story state after the previous episode, previous episodes).
 
 The site validates every field and checks **continuity** against the stored story. Errors block saving; warnings are shown but do not block. The editor at `/new` shows each problem with its line and column.
@@ -27,6 +27,7 @@ Every document starts with `"schema_version": "2.3"` and its `doc_type`. 2.0–2
 3. Segment `order` values are 1, 2, 3, … and are the play order.
 4. Never put `<` or `>` in the YouTube title or description, and never `[` or `<` in `narration` or a line's `text`.
 5. Unknown keys are kept but ignored; misspelt keys silently do nothing, so match the names below exactly.
+6. On an optional field, `null` means the same as leaving the key out (the default applies). Required fields must have a real value; `null` there is an error.
 
 ---
 
@@ -149,7 +150,7 @@ schema_version, doc_type, story_id, story_title?, episode_number, episode_title,
 | `story_id` | Required. The story must already exist on the site (paste its bible first, or send a bundle). |
 | `story_title` | Optional, informational. If it differs from the stored title you get a warning and the stored title is used. |
 | `episode_number` | Required, an integer from 1. Pasting a number that already exists makes a **new version** of that episode (after a confirmation). Skipping a number is allowed but warned about ("Episode 4 was added while Episode 3 is missing …"). |
-| `episode_title` | Required. Also the default `youtube.title` and the default short title in `series`. |
+| `episode_title` | Required, not empty, and unique within the story (a repeated title is a warning). Shown in the sidebar and on the episode page; used in the default `youtube.title` and as the default short title in `series`. |
 | `is_finale` | Optional (default `false`). A finale needs no cliffhanger. |
 
 Episode N is checked against the story state **after episode N−1** (or the bible's starting state for episode 1), so you can write episode 2 while episode 1 is still rendering. Older documents that put `episode_number`, `episode_title_short` and `is_finale` in `series` still work; don't put different values in both places (error).
@@ -166,11 +167,11 @@ Episode N is checked against the story state **after episode N−1** (or the bib
 | `role` | `cold_open`, `recap`, `status_board`, `main` (default), `cliffhanger` or `end_card`. See **Segment roles**. |
 | `narration` | Clean text that is captioned and checked against what Whisper hears. **No tags.** Aim for 8–40 words; over 60 gives a warning. |
 | `tts_text` | The narration with Fish voice tags (see **Voice direction**). With the tags removed it must equal `narration`. Expected on segments of 3+ sentences. |
-| `lines[]` | Instead of `narration`: the segment as narrator and dialogue lines (see **Dialogue**). Use one or the other, never both. |
+| `lines[]` | Instead of `narration`: the segment as narrator and dialogue lines (see **Dialogue**). Use one or the other, never both. `[]` means no lines. |
 | `caption_text` | Optional caption override. |
 | `delivery` | Optional acting note (≤120 chars), e.g. `"whispered, tense"`. |
 | `sentence_split_override` | Optional `string[]` when the automatic sentence split is wrong; must join back to the narration. Not allowed with `lines`. |
-| `silent` | `true` for cards with no voice. |
+| `silent` | `true` for a segment with no voice (any type, e.g. a title card or infographic): it may leave out `narration` and use `"lines": []`. Every segment that is not silent needs `narration` or at least one line. |
 | `min_duration_sec` | Hold the picture at least this long. |
 | `transition_out` | `cut` (default), `crossfade_150ms` or `fade_black`. |
 | `scene` | Required on `illustration` (below). |
@@ -408,7 +409,7 @@ Only commercially licensed clips are used (the channel is monetised): CC0, publi
 | Field | Notes |
 |---|---|
 | `channel_name` | Optional; defaults to the story's channel. The bot refuses a different channel. |
-| `title` | ≤ 100 characters. Optional in 2.3: defaults to `episode_title`. |
+| `title` | ≤ 100 characters. Optional in 2.3: defaults to "{story_title} Ep. {episode_number}: {episode_title}" (the stored story title), e.g. "The Rising Ep. 1: The Water Comes". |
 | `description` | ≤ 5000 bytes after expansion. Put `{{chapters}}`, `{{sfx_credits}}` and (optionally) `{{series_nav}}` on their own lines. `{{series_nav}}` becomes "Episode N of M" plus links to the previous and next episodes once they are on YouTube. |
 | `tags` | ≤ 500 characters total. |
 | `category`, `language` | Default `Entertainment`, `en`. |

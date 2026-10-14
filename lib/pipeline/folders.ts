@@ -415,11 +415,11 @@ function segmentDiff(before: EpisodeDoc | null, after: EpisodeDoc | null): strin
 }
 
 /** The stored version's episode document, parsed the same way as a new paste so the diff compares like with like. */
-function storedDoc(p: ProjectRow): EpisodeDoc | null {
+function storedDoc(p: ProjectRow, storyTitle: string | null): EpisodeDoc | null {
   const { raw } = parseJsonText(p.rawJson);
   const r = raw as { doc_type?: string; episode?: unknown } | undefined;
   const doc = r?.doc_type === "bundle" ? r.episode : raw;
-  const parsed = EpisodeDocSchema.safeParse(normalizeEpisodeHeader(doc).raw);
+  const parsed = EpisodeDocSchema.safeParse(normalizeEpisodeHeader(doc, [], { storyTitle }).raw);
   return parsed.success ? parsed.data : null;
 }
 
@@ -509,7 +509,7 @@ export async function planIngest(db: Db, text: string, scopeStoryId?: string | n
     const active = row?.activeVersionId ? (await db.select().from(projects).where(eq(projects.id, row.activeVersionId)))[0] : undefined;
     if (active) {
       plan.replaces = { projectId: active.id, version: active.version, state: active.state, published: !!active.publishedAt };
-      plan.diff.push(...segmentDiff(storedDoc(active), validation.episode_doc));
+      plan.diff.push(...segmentDiff(storedDoc(active, story?.title ?? null), validation.episode_doc));
       if (active.publishedAt) plan.warnings.unshift(`Version ${active.version} is already published; the YouTube video is not changed.`);
     }
     plan.action = !story ? "create_story_with_episode" : active ? "new_version" : "add_episode";

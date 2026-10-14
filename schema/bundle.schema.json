@@ -69,7 +69,6 @@
               "minLength": 1
             },
             "recurring_cameo": {
-              "default": null,
               "anyOf": [
                 {
                   "type": "object",
@@ -104,7 +103,8 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "default": null
             }
           },
           "required": [
@@ -144,7 +144,6 @@
               "type": "string"
             },
             "reference_assets": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -168,7 +167,8 @@
                   "id"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "multi_character_negative": {
               "default": "merged faces, duplicate faces, fused bodies, extra limbs, the same face on two people, twins",
@@ -212,7 +212,6 @@
               ]
             },
             "identification": {
-              "default": null,
               "anyOf": [
                 {
                   "type": "object",
@@ -248,7 +247,6 @@
                       "type": "boolean"
                     },
                     "name_card": {
-                      "default": null,
                       "anyOf": [
                         {
                           "type": "object",
@@ -278,7 +276,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "default": null
                     }
                   },
                   "additionalProperties": {}
@@ -286,10 +285,10 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "default": null
             },
             "voice": {
-              "default": null,
               "anyOf": [
                 {
                   "type": "object",
@@ -327,13 +326,13 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "default": null
             }
           },
           "additionalProperties": {}
         },
         "characters": {
-          "default": [],
           "type": "array",
           "items": {
             "anyOf": [
@@ -347,7 +346,6 @@
                     "pattern": "^[a-z0-9][a-z0-9_-]*$"
                   },
                   "story_outfit_states": {
-                    "default": [],
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -367,7 +365,8 @@
                         "id"
                       ],
                       "additionalProperties": {}
-                    }
+                    },
+                    "default": []
                   },
                   "first_appears_episode": {
                     "type": "integer",
@@ -439,7 +438,6 @@
                     "minLength": 1
                   },
                   "outfit_states": {
-                    "default": [],
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -459,7 +457,8 @@
                         "id"
                       ],
                       "additionalProperties": {}
-                    }
+                    },
+                    "default": []
                   },
                   "reference_image_ids": {
                     "default": [],
@@ -478,7 +477,6 @@
                     "maximum": 9007199254740991
                   },
                   "voice": {
-                    "default": null,
                     "anyOf": [
                       {
                         "type": "object",
@@ -531,7 +529,8 @@
                       {
                         "type": "null"
                       }
-                    ]
+                    ],
+                    "default": null
                   },
                   "voice_group": {
                     "default": null,
@@ -575,10 +574,10 @@
                 "additionalProperties": {}
               }
             ]
-          }
+          },
+          "default": []
         },
         "character_groups": {
-          "default": [],
           "type": "array",
           "items": {
             "type": "object",
@@ -609,14 +608,14 @@
               "character_ids"
             ],
             "additionalProperties": {}
-          }
+          },
+          "default": []
         },
         "scene_bible": {
           "default": {},
           "type": "object",
           "properties": {
             "world_variables": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -694,10 +693,10 @@
                   "initial"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "locations": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -800,7 +799,6 @@
                     }
                   },
                   "key_props": {
-                    "default": [],
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -825,7 +823,8 @@
                         "description"
                       ],
                       "additionalProperties": {}
-                    }
+                    },
+                    "default": []
                   }
                 },
                 "required": [
@@ -836,7 +835,8 @@
                   "states"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             }
           },
           "additionalProperties": {}
@@ -1325,7 +1325,6 @@
               "additionalProperties": {}
             },
             "bot_triggers": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -1410,7 +1409,8 @@
                   "bot_task_type"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             }
           },
           "additionalProperties": {}
@@ -1553,10 +1553,8 @@
                 ]
               },
               "lines": {
-                "default": null,
                 "anyOf": [
                   {
-                    "minItems": 1,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -1627,7 +1625,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "default": null
               },
               "caption_text": {
                 "default": null,
@@ -1681,7 +1680,6 @@
                 "type": "boolean"
               },
               "scene": {
-                "default": null,
                 "anyOf": [
                   {
                     "type": "object",
@@ -1718,7 +1716,6 @@
                         }
                       },
                       "characters_present": {
-                        "default": [],
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1766,7 +1763,8 @@
                             "character_id"
                           ],
                           "additionalProperties": {}
-                        }
+                        },
+                        "default": []
                       },
                       "props_in_frame": {
                         "default": [],
@@ -1779,7 +1777,6 @@
                         }
                       },
                       "state_changes": {
-                        "default": [],
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1818,7 +1815,8 @@
                             "persist"
                           ],
                           "additionalProperties": {}
-                        }
+                        },
+                        "default": []
                       },
                       "include_channel_cameo": {
                         "default": false,
@@ -1872,10 +1870,10 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "default": null
               },
               "image": {
-                "default": null,
                 "anyOf": [
                   {
                     "type": "object",
@@ -1885,7 +1883,6 @@
                         "type": "string"
                       },
                       "focal_points": {
-                        "default": [],
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -1910,10 +1907,10 @@
                             "y"
                           ],
                           "additionalProperties": {}
-                        }
+                        },
+                        "default": []
                       },
                       "crop_override": {
-                        "default": null,
                         "anyOf": [
                           {
                             "type": "object",
@@ -2027,7 +2024,8 @@
                           {
                             "type": "null"
                           }
-                        ]
+                        ],
+                        "default": null
                       },
                       "negative_prompt_extra": {
                         "default": "",
@@ -2053,10 +2051,10 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "default": null
               },
               "remotion": {
-                "default": null,
                 "anyOf": [
                   {
                     "type": "object",
@@ -2122,7 +2120,6 @@
                             ]
                           },
                           "items": {
-                            "default": [],
                             "type": "array",
                             "items": {
                               "type": "object",
@@ -2171,7 +2168,8 @@
                                 }
                               },
                               "additionalProperties": {}
-                            }
+                            },
+                            "default": []
                           },
                           "footer": {
                             "default": null,
@@ -2222,10 +2220,10 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "default": null
               },
               "sfx": {
-                "default": [],
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -2336,7 +2334,8 @@
                     "search_query"
                   ],
                   "additionalProperties": {}
-                }
+                },
+                "default": []
               },
               "transition_out": {
                 "default": "cut",
@@ -2357,7 +2356,6 @@
           }
         },
         "character_status_changes": {
-          "default": [],
           "type": "array",
           "items": {
             "type": "object",
@@ -2402,7 +2400,8 @@
               "cause"
             ],
             "additionalProperties": {}
-          }
+          },
+          "default": []
         },
         "thumbnail": {
           "type": "object",
@@ -2412,7 +2411,6 @@
               "minLength": 1
             },
             "scene": {
-              "default": null,
               "anyOf": [
                 {
                   "type": "object",
@@ -2459,7 +2457,8 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "default": null
             },
             "characters_present": {
               "default": [],
@@ -2488,7 +2487,6 @@
               ]
             },
             "text_layers": {
-              "default": [],
               "maxItems": 4,
               "type": "array",
               "items": {
@@ -2534,7 +2532,8 @@
                   "text"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "safe_zone_note": {
               "default": "",
@@ -2672,7 +2671,6 @@
           "additionalProperties": {}
         },
         "chapters": {
-          "default": [],
           "type": "array",
           "items": {
             "type": "object",
@@ -2694,7 +2692,8 @@
               "title"
             ],
             "additionalProperties": {}
-          }
+          },
+          "default": []
         },
         "automation": {
           "default": {},
@@ -2720,7 +2719,6 @@
               "additionalProperties": {}
             },
             "bot_triggers": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -2805,7 +2803,8 @@
                   "bot_task_type"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             }
           },
           "additionalProperties": {}
@@ -3193,7 +3192,6 @@
           "type": "object",
           "properties": {
             "characters": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3232,7 +3230,6 @@
                     "minLength": 1
                   },
                   "outfit_states": {
-                    "default": [],
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -3252,7 +3249,8 @@
                         "id"
                       ],
                       "additionalProperties": {}
-                    }
+                    },
+                    "default": []
                   },
                   "reference_image_ids": {
                     "default": [],
@@ -3271,7 +3269,6 @@
                     "maximum": 9007199254740991
                   },
                   "voice": {
-                    "default": null,
                     "anyOf": [
                       {
                         "type": "object",
@@ -3324,7 +3321,8 @@
                       {
                         "type": "null"
                       }
-                    ]
+                    ],
+                    "default": null
                   },
                   "voice_group": {
                     "default": null,
@@ -3366,10 +3364,10 @@
                   "visual_description"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "locations": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3472,7 +3470,6 @@
                     }
                   },
                   "key_props": {
-                    "default": [],
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -3497,7 +3494,8 @@
                         "description"
                       ],
                       "additionalProperties": {}
-                    }
+                    },
+                    "default": []
                   }
                 },
                 "required": [
@@ -3508,10 +3506,10 @@
                   "states"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "location_states": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3565,10 +3563,10 @@
                   "state"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "camera_angles": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3609,10 +3607,10 @@
                   "angle"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "key_props": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3653,10 +3651,10 @@
                   "prop"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "outfit_states": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3692,10 +3690,10 @@
                   "outfit"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "world_variables": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3773,10 +3771,10 @@
                   "initial"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             },
             "character_groups": {
-              "default": [],
               "type": "array",
               "items": {
                 "type": "object",
@@ -3807,7 +3805,8 @@
                   "character_ids"
                 ],
                 "additionalProperties": {}
-              }
+              },
+              "default": []
             }
           },
           "additionalProperties": {}
@@ -3817,11 +3816,11 @@
         "schema_version",
         "doc_type",
         "story_id",
+        "episode_number",
+        "episode_title",
         "segments",
         "thumbnail",
-        "youtube",
-        "episode_number",
-        "episode_title"
+        "youtube"
       ],
       "additionalProperties": {}
     }

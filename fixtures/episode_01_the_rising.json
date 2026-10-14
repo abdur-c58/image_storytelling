@@ -1,0 +1,204 @@
+{
+  "schema_version": "2.3",
+  "doc_type": "episode",
+  "story_id": "the-rising",
+  "story_title": "The Rising",
+  "episode_number": 1,
+  "episode_title": "The Water Comes",
+  "is_finale": false,
+  "series": {
+    "recap_of_previous": null,
+    "cliffhanger": "Water on the stairs.",
+    "next_episode_teaser": null,
+    "state_carryover": null
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "role": "cold_open",
+      "silent": true,
+      "lines": [],
+      "tts_text": null,
+      "caption_text": null,
+      "delivery": null,
+      "sentence_split_override": null,
+      "min_duration_sec": 2,
+      "scene": null,
+      "image": null,
+      "remotion": {
+        "template": "title_card",
+        "props": { "title": "THE RISING", "subtitle": "EPISODE 1", "body": null, "background": "dark", "items": null, "footer": null, "accent": null }
+      },
+      "sfx": null,
+      "transition_out": null
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "role": "main",
+      "narration": "The rain had not stopped for nine days. You stood at the window and watched the river climb the street.",
+      "tts_text": null,
+      "lines": null,
+      "silent": false,
+      "min_duration_sec": null,
+      "scene": {
+        "location_id": "house",
+        "state_id": "dry",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1, "river_level": "high" },
+        "characters_present": [
+          { "character_id": "you", "outfit_state_id": null, "pose_or_action": "standing at the window", "position_in_frame": "left", "cameo": null }
+        ],
+        "props_in_frame": null,
+        "state_changes": null,
+        "include_channel_cameo": null,
+        "timeframe": null,
+        "visual_treatment": null,
+        "pov_exception_reason": null
+      },
+      "image": {
+        "prompt": "Grey rain against the glass, the street outside shining with water",
+        "focal_points": null,
+        "crop_override": null,
+        "negative_prompt_extra": null,
+        "reuse_from_segment_id": null
+      },
+      "remotion": null,
+      "sfx": [
+        { "id": "seg_002_sfx_1", "search_query": "heavy rain on window", "alt_queries": null, "placement": null, "at_phrase": null, "duration_sec": null, "gain_db": null }
+      ],
+      "transition_out": null
+    },
+    {
+      "id": "seg_003",
+      "order": 3,
+      "type": "title_card",
+      "role": "main",
+      "silent": true,
+      "lines": [],
+      "scene": null,
+      "image": null,
+      "remotion": { "template": "name_card", "props": { "text": null, "character_id": null, "background": "dark" } }
+    },
+    {
+      "id": "seg_004",
+      "order": 4,
+      "type": "infographic",
+      "role": "status_board",
+      "silent": true,
+      "lines": [],
+      "min_duration_sec": 4,
+      "scene": null,
+      "image": null,
+      "remotion": {
+        "template": "supplies_card",
+        "props": {
+          "title": "SUPPLIES",
+          "subtitle": "DAY 1",
+          "background": "cream",
+          "items": [
+            { "label": "Water", "value": "6 bottles", "icon": "water_jug", "icon_count": 3, "icon_total": 5 },
+            { "label": "Food", "value": "3 days", "icon": "can", "icon_count": null, "icon_total": null }
+          ]
+        }
+      }
+    },
+    {
+      "id": "seg_005",
+      "order": 5,
+      "type": "illustration",
+      "role": "main",
+      "narration": "You stepped outside. The water was already over your boots.",
+      "scene": {
+        "location_id": "street",
+        "state_id": "wet",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1, "river_level": "high" },
+        "characters_present": [{ "character_id": "you", "outfit_state_id": "default", "pose_or_action": "wading down the street", "position_in_frame": "center" }]
+      },
+      "image": { "prompt": "Ankle-deep water running down the sloping street" }
+    },
+    {
+      "id": "seg_006",
+      "order": 6,
+      "type": "illustration",
+      "role": "main",
+      "narration": null,
+      "lines": [
+        { "id": "seg_006_l1", "speaker": "narrator", "text": "Old Ellis from next door was waiting by the post box.", "tts_text": null, "voice_effect": null, "on_screen": null, "source": null, "caption_text": null },
+        { "id": "seg_006_l2", "speaker": "ellis", "text": "You should leave tonight. The levee will not hold.", "tts_text": null, "voice_effect": null, "on_screen": true, "source": null, "caption_text": null }
+      ],
+      "scene": {
+        "location_id": "street",
+        "state_id": "wet",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1, "river_level": "high" },
+        "characters_present": [
+          { "character_id": "you", "outfit_state_id": null, "pose_or_action": "listening", "position_in_frame": "left" },
+          { "character_id": "ellis", "outfit_state_id": null, "pose_or_action": "pointing towards the river", "position_in_frame": "right" }
+        ]
+      },
+      "image": { "prompt": "Two figures by a red post box in the rain" }
+    },
+    {
+      "id": "seg_007",
+      "order": 7,
+      "type": "illustration",
+      "role": "cliffhanger",
+      "narration": "That night, you woke to the sound of water on the stairs.",
+      "scene": {
+        "location_id": "house",
+        "state_id": "flooded",
+        "camera_angle_id": "b",
+        "world_state": { "day": 1, "river_level": "flood" },
+        "characters_present": [{ "character_id": "you", "pose_or_action": "standing at the top of the stairs", "position_in_frame": "center" }],
+        "state_changes": [
+          { "location_id": "house", "from_state_id": "dry", "to_state_id": "flooded", "cause": "The river broke through the front door.", "persist": true }
+        ]
+      },
+      "image": { "prompt": "Dark water lapping at the bottom stairs, moonlight through the door glass" }
+    },
+    {
+      "id": "seg_008",
+      "order": 8,
+      "type": "title_card",
+      "role": "end_card",
+      "silent": true,
+      "lines": [],
+      "remotion": { "template": "title_card", "props": { "title": "TO BE CONTINUED", "background": "dark" } }
+    }
+  ],
+  "character_status_changes": null,
+  "thumbnail": {
+    "image_prompt": "You at the top of the stairs, dark water rising below",
+    "scene": { "location_id": "house", "state_id": "flooded", "camera_angle_id": "b", "world_state": null },
+    "characters_present": ["you"],
+    "pairing_layout": null,
+    "text_layers": [{ "text": "THE WATER IS COMING", "style": null, "position": null, "max_font_size_px": null }],
+    "safe_zone_note": null,
+    "alt_variants": null
+  },
+  "youtube": {
+    "channel_name": null,
+    "description": "The river keeps rising.\n\n{{chapters}}\n\n{{series_nav}}\n\n{{sfx_credits}}",
+    "tags": ["story", "flood"],
+    "category": null,
+    "language": null,
+    "visibility": "private",
+    "scheduled_publish_at": null,
+    "playlist": null,
+    "made_for_kids": null,
+    "contains_altered_or_synthetic_media": null,
+    "comments_enabled": null,
+    "pinned_comment": null,
+    "end_screen_note": null,
+    "chapters_from_segments": null
+  },
+  "chapters": null,
+  "automation": null,
+  "overrides": null,
+  "bible_additions": null
+}

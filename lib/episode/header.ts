@@ -15,9 +15,25 @@ export interface HeaderIssue {
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
+const missing = (v: unknown) => v === undefined || v === null;
+
+/** "The Rising Ep. 3: Day One" (just "Ep. 3: Day One" when the story's title is not known). */
+export function defaultYoutubeTitle(storyTitle: string | null | undefined, episodeNumber: unknown, episodeTitle: string): string {
+  const ep = typeof episodeNumber === "number" ? `Ep. ${episodeNumber}: ${episodeTitle}` : episodeTitle;
+  return nonEmpty(storyTitle) ? `${storyTitle.trim()} ${ep}` : ep;
+}
+
+export interface HeaderOptions {
+  /** The stored story's title; it wins over the document's own story_title in the default YouTube title. */
+  storyTitle?: string | null;
+}
 
 /** Returns a copy of `raw` with both header forms filled in, plus any conflicts between them. */
-export function normalizeEpisodeHeader(raw: unknown, prefix: (string | number)[] = []): { raw: unknown; issues: HeaderIssue[] } {
+export function normalizeEpisodeHeader(
+  raw: unknown,
+  prefix: (string | number)[] = [],
+  options: HeaderOptions = {},
+): { raw: unknown; issues: HeaderIssue[] } {
   if (!isObj(raw)) return { raw, issues: [] };
   const issues: HeaderIssue[] = [];
   const doc: Obj = structuredClone(raw);
@@ -25,44 +41,46 @@ export function normalizeEpisodeHeader(raw: unknown, prefix: (string | number)[]
   const at = (...p: (string | number)[]) => [...prefix, ...p];
 
   if (typeof doc.schema_version === "string" && schemaAtLeast(doc.schema_version, "2.3")) {
-    if (doc.episode_number === undefined) {
+    if (missing(doc.episode_number)) {
       issues.push({ level: "error", path: at("episode_number"), message: '"episode_number" is required in the 2.3 episode header.' });
     }
-    if (doc.episode_title === undefined) {
+    if (missing(doc.episode_title)) {
       issues.push({ level: "error", path: at("episode_title"), message: '"episode_title" is required in the 2.3 episode header.' });
     }
   }
 
-  if (doc.episode_number !== undefined && series.episode_number !== undefined && doc.episode_number !== series.episode_number) {
+  if (!missing(doc.episode_number) && !missing(series.episode_number) && doc.episode_number !== series.episode_number) {
     issues.push({
       level: "error",
       path: at("episode_number"),
       message: `episode_number ${String(doc.episode_number)} disagrees with series.episode_number ${String(series.episode_number)}. Remove one of them.`,
     });
   }
-  if (doc.is_finale !== undefined && series.is_finale !== undefined && doc.is_finale !== series.is_finale) {
+  if (!missing(doc.is_finale) && !missing(series.is_finale) && doc.is_finale !== series.is_finale) {
     issues.push({ level: "error", path: at("is_finale"), message: "is_finale disagrees with series.is_finale. Remove one of them." });
   }
-  if (doc.episode_number === undefined && series.episode_number !== undefined) doc.episode_number = series.episode_number;
-  if (series.episode_number === undefined && doc.episode_number !== undefined) series.episode_number = doc.episode_number;
-  if (doc.is_finale === undefined && series.is_finale !== undefined) doc.is_finale = series.is_finale;
-  if (series.is_finale === undefined && doc.is_finale !== undefined) series.is_finale = doc.is_finale;
+  if (missing(doc.episode_number) && !missing(series.episode_number)) doc.episode_number = series.episode_number;
+  if (missing(series.episode_number) && !missing(doc.episode_number)) series.episode_number = doc.episode_number;
+  if (missing(doc.is_finale) && !missing(series.is_finale)) doc.is_finale = series.is_finale;
+  if (missing(series.is_finale) && !missing(doc.is_finale)) series.is_finale = doc.is_finale;
   if (!nonEmpty(series.episode_title_short) && nonEmpty(doc.episode_title)) series.episode_title_short = doc.episode_title;
-  if (doc.episode_title === undefined && nonEmpty(series.episode_title_short)) doc.episode_title = series.episode_title_short;
+  if (missing(doc.episode_title) && nonEmpty(series.episode_title_short)) doc.episode_title = series.episode_title_short;
 
   const youtube: Obj = isObj(doc.youtube) ? doc.youtube : {};
   if (!nonEmpty(youtube.title) && nonEmpty(doc.episode_title)) {
-    youtube.title = doc.episode_title;
+    const storyTitle = nonEmpty(options.storyTitle) ? options.storyTitle : typeof doc.story_title === "string" ? doc.story_title : null;
+    youtube.title = defaultYoutubeTitle(storyTitle, doc.episode_number, doc.episode_title.trim());
     doc.youtube = youtube;
   }
   doc.series = series;
   return { raw: doc, issues };
 }
 
-/** The bundle form: the header lives in `episode`. */
-export function normalizeBundleHeader(raw: unknown): { raw: unknown; issues: HeaderIssue[] } {
+/** The bundle form: the header lives in `episode`; the bundle's story_title names the story. */
+export function normalizeBundleHeader(raw: unknown, options: HeaderOptions = {}): { raw: unknown; issues: HeaderIssue[] } {
   if (!isObj(raw) || !isObj(raw.episode)) return { raw, issues: [] };
-  const inner = normalizeEpisodeHeader(raw.episode, ["episode"]);
+  const bibleTitle = isObj(raw.story_bible) && typeof raw.story_bible.story_title === "string" ? raw.story_bible.story_title : null;
+  const inner = normalizeEpisodeHeader(raw.episode, ["episode"], { storyTitle: options.storyTitle ?? bibleTitle });
   return { raw: { ...raw, episode: inner.raw }, issues: inner.issues };
 }
 

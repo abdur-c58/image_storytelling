@@ -96,6 +96,8 @@ export interface StoryContext {
   registry?: CastRegistry | null;
   /** Episode numbers the story folder already has (for gap warnings). */
   existingEpisodes?: number[];
+  /** Titles of the folder's episodes by number (for duplicate-title warnings). */
+  episodeTitles?: Record<number, string>;
 }
 
 export interface ValidationResult {
@@ -200,17 +202,23 @@ function flattenUnion(issue: ZodIssueLike): ZodIssueLike[] {
 }
 
 function zodIssues(error: z.ZodError, issues: IssueCollector, raw: unknown, prefix: IssuePath = []) {
+  const reported = new Set(issues.errors.map((e) => e.path_text));
   for (const issue of (error.issues as ZodIssueLike[]).flatMap(flattenUnion)) {
     const path = issue.path.filter((p): p is string | number => typeof p !== "symbol");
+    const full = [...prefix, ...path];
+    // The header check already explained this field.
+    if (reported.has(pathText(full))) continue;
     let message = issue.message;
-    // Name the segment so the message is readable without counting array indices.
+    // Name the segment and the field inside it, so the message is readable without counting array indices.
     const si = path.indexOf("segments");
     if (si >= 0 && typeof path[si + 1] === "number") {
       const scope = (si === 0 ? raw : (raw as Record<string, unknown>)?.[String(path[0])]) as { segments?: Array<{ id?: unknown }> };
       const seg = scope?.segments?.[path[si + 1] as number];
-      if (seg && typeof seg.id === "string") message = `${seg.id}: ${message}`;
+      const field = path.slice(si + 2);
+      const name = seg && typeof seg.id === "string" ? seg.id : `segment ${(path[si + 1] as number) + 1}`;
+      message = field.length ? `${name}: ${pathText(field)}: ${message}` : `${name}: ${message}`;
     }
-    issues.error([...prefix, ...path], message);
+    issues.error(full, message);
   }
 }
 
@@ -313,7 +321,7 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
       issues.error(at("lines"), `${label}: use either "narration" (+ "tts_text") or "lines", not both.`);
     }
     if (!seg.silent && !spoken.trim()) {
-      issues.error(at("narration"), `${label}: "narration" (or "lines") is required unless "silent" is true.`);
+      issues.error(at("narration"), `${label}: a segment that is not silent needs "narration" or at least one entry in "lines" (or set "silent": true).`);
     }
     if (seg.silent && (seg.narration.trim() || hasLines)) {
       issues.warn(at(hasLines ? "lines" : "narration"), `${label}: segment is silent, so its narration will not be spoken.`);
@@ -572,6 +580,12 @@ function checkEpisodeWithStory(
     const from = start.after_episode > 0 ? `Episode ${start.after_episode}` : "the story's initial state";
     issues.warn(P("episode_number"), `Episode ${epNo} was added while Episode ${epNo - 1} is missing. State continuity is computed from ${from}.`);
   }
+  const sameTitle = Object.entries(ctx.episodeTitles ?? {}).find(
+    ([n, t]) => Number(n) !== epNo && t.trim().toLowerCase() === doc.episode_title.trim().toLowerCase(),
+  );
+  if (sameTitle) {
+    issues.warn(P("episode_title"), `episode_title '${doc.episode_title}' is already used by Episode ${sameTitle[0]} of this story. Episode titles should be unique.`);
+  }
   const continuity = checkContinuity(effective, doc, start, issues, prefix);
   const identification = checkIdentificationEpisode(effective, doc, issues, prefix);
   const structure = checkStructure(doc, episode.structure, effective.narrator.pov, episode.voice.pause_between_segments_ms, issues, prefix);
@@ -673,8 +687,10 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
     return { ...empty(doc_type, issues), ok, story: bible };
   }
 
+  const storedTitle = options.story && options.story.bible.story_id === detectDocType(raw).story_id ? options.story.bible.story_title : null;
+
   if (doc_type === "bundle") {
-    const header = normalizeBundleHeader(raw);
+    const header = normalizeBundleHeader(raw, { storyTitle: storedTitle });
     raw = header.raw;
     for (const h of header.issues) {
       if (h.level === "error") issues.error(h.path, h.message);
@@ -706,7 +722,7 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
     };
   }
 
-  const header = normalizeEpisodeHeader(raw);
+  const header = normalizeEpisodeHeader(raw, [], { storyTitle: storedTitle });
   raw = header.raw;
   for (const h of header.issues) {
     if (h.level === "error") issues.error(h.path, h.message);

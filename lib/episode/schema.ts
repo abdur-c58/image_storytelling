@@ -39,6 +39,25 @@ import {
 // Every object is "loose": unknown keys are kept (stored) but ignored, so the
 // contract can grow without breaking scripts written against an older version.
 // `.prefault(x)` parses `x` through the schema, so nested defaults apply to omitted blocks.
+// For optional fields, null means the same as leaving the key out (see `obj`); required fields stay strict.
+
+type Shape = Record<string, z.ZodType>;
+
+function dropNulls(value: unknown, keys: string[]): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const o = value as Record<string, unknown>;
+  if (!keys.some((k) => o[k] === null)) return value;
+  const out = { ...o };
+  for (const k of keys) if (out[k] === null) delete out[k];
+  return out;
+}
+
+/** A loose object where `null` on an optional key (one that takes a missing value but not null) counts as missing. */
+function obj<T extends Shape>(shape: T) {
+  // optin is "optional" for .optional() and "defaulted" for .default()/.prefault().
+  const keys = Object.keys(shape).filter((k) => shape[k]._zod.optin !== undefined && !shape[k].safeParse(null).success);
+  return z.preprocess((v) => dropNulls(v, keys), z.looseObject(shape));
+}
 
 const slug = z
   .string()
@@ -71,7 +90,7 @@ const voiceFields = {
   pause_durations_ms: z.record(z.string().min(1), z.number().int().min(0).max(10000)),
 };
 
-export const VoiceSchema = z.looseObject({
+export const VoiceSchema = obj({
   provider: voiceFields.provider.default("fish_audio"),
   voice_id: voiceFields.voice_id.default(""),
   model: voiceFields.model.default(""),
@@ -97,7 +116,7 @@ const musicFields = {
   duck_under_voice: z.boolean(),
 };
 
-export const MusicSchema = z.looseObject({
+export const MusicSchema = obj({
   enabled: musicFields.enabled.default(false),
   query: musicFields.query.default(""),
   gain_db: musicFields.gain_db.default(-26),
@@ -111,7 +130,7 @@ const audioFields = {
   sfx_default_gain_db: z.number().min(-60).max(6),
 };
 
-export const AudioSchema = z.looseObject({
+export const AudioSchema = obj({
   master_loudness_lufs: audioFields.master_loudness_lufs.default(-14),
   true_peak_db: audioFields.true_peak_db.default(-1.5),
   voice_target_lufs: audioFields.voice_target_lufs.default(-16),
@@ -131,7 +150,7 @@ const renderFields = {
   audio_bitrate_kbps: z.union([z.literal(128), z.literal(192), z.literal(256), z.literal(320)]),
 };
 
-export const RenderSchema = z.looseObject({
+export const RenderSchema = obj({
   resolution: renderFields.resolution.default("1920x1080"),
   fps: renderFields.fps.default(30),
   burn_in_captions: renderFields.burn_in_captions.default(false),
@@ -163,7 +182,7 @@ const cropFields = {
   seed: z.number().int().nullable(),
 };
 
-export const CropPolicySchema = z.looseObject({
+export const CropPolicySchema = obj({
   enabled: cropFields.enabled.default(true),
   max_crop: cropFields.max_crop.default(0.2),
   typical_max_crop: cropFields.typical_max_crop.default(0.1),
@@ -184,7 +203,7 @@ export const CropPolicySchema = z.looseObject({
 });
 
 const partial = <T extends Record<string, z.ZodType>>(fields: T) =>
-  z.looseObject(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.optional()])) as { [K in keyof T]: z.ZodOptional<T[K]> });
+  obj(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.optional()])) as { [K in keyof T]: z.ZodOptional<T[K]> });
 
 const structureFields = {
   /** Structure rules (segment roles) are warnings; switch them all off here. */
@@ -201,7 +220,7 @@ const structureFields = {
   end_card_last: z.boolean(),
 };
 
-export const StructureSchema = z.looseObject({
+export const StructureSchema = obj({
   enabled: structureFields.enabled.default(true),
   cold_open_first: structureFields.cold_open_first.default(true),
   recap_within_first: structureFields.recap_within_first.default(3),
@@ -219,12 +238,12 @@ export const CropOverrideSchema = partial(cropFields);
 
 // ── Story bible ─────────────────────────────────────────────────────────────
 
-export const OutfitStateSchema = z.looseObject({
+export const OutfitStateSchema = obj({
   id: slug,
   description: z.string().default(""),
 });
 
-export const CharacterVoiceSchema = z.looseObject({
+export const CharacterVoiceSchema = obj({
   provider: z.literal("fish_audio").default("fish_audio"),
   voice_id: z.string().default(""),
   model: z.string().default(""),
@@ -235,7 +254,7 @@ export const CharacterVoiceSchema = z.looseObject({
   pronunciation_overrides: z.record(z.string().min(1), z.string().min(1)).default({}),
 });
 
-export const CharacterSchema = z.looseObject({
+export const CharacterSchema = obj({
   id: slug,
   name: nonEmpty,
   role: z.enum(CHARACTER_ROLES).default("extra"),
@@ -252,7 +271,7 @@ export const CharacterSchema = z.looseObject({
 });
 
 /** A channel character used by this story; expanded from the registry when the bible is saved. */
-export const CharacterRefSchema = z.looseObject({
+export const CharacterRefSchema = obj({
   ref: slug,
   story_outfit_states: z.array(OutfitStateSchema).default([]),
   first_appears_episode: z.number().int().min(1).optional(),
@@ -260,7 +279,7 @@ export const CharacterRefSchema = z.looseObject({
   role: z.enum(CHARACTER_ROLES).optional(),
 });
 
-export const NameCardSchema = z.looseObject({
+export const NameCardSchema = obj({
   enabled: z.boolean().default(true),
   /** The episode that must introduce the POV character with a name card. */
   episode: z.number().int().min(1).default(1),
@@ -269,42 +288,40 @@ export const NameCardSchema = z.looseObject({
 });
 
 /** Second-person stories: the viewer is the POV character (2.2). */
-export const IdentificationSchema = z
-  .looseObject({
-    /** Defaults to narrator.pov_character_id. */
-    pov_character_id: slug.nullable().default(null),
-    min_on_screen_ratio: unit.default(0.8),
-    hard_min_on_screen_ratio: unit.default(0.5),
-    forbid_narrator_name: z.boolean().default(true),
-    name_card: NameCardSchema.nullable().default(null),
-  })
+export const IdentificationSchema = obj({
+  /** Defaults to narrator.pov_character_id. */
+  pov_character_id: slug.nullable().default(null),
+  min_on_screen_ratio: unit.default(0.8),
+  hard_min_on_screen_ratio: unit.default(0.5),
+  forbid_narrator_name: z.boolean().default(true),
+  name_card: NameCardSchema.nullable().default(null),
+})
   .refine((v) => v.hard_min_on_screen_ratio <= v.min_on_screen_ratio, {
     message: "hard_min_on_screen_ratio must not be above min_on_screen_ratio.",
     path: ["hard_min_on_screen_ratio"],
   });
 
-export const NarratorSchema = z.looseObject({
+export const NarratorSchema = obj({
   pov: z.enum(POV_MODES).default("second_person"),
   pov_character_id: slug.nullable().default(null),
   identification: IdentificationSchema.nullable().default(null),
-  voice: z
-    .looseObject({
-      voice_id: z.string().default(""),
-      model: z.string().default(""),
-      speed: z.number().min(0.5).max(2).nullable().default(null),
-      gain_db: z.number().min(-12).max(12).default(0),
-    })
+  voice: obj({
+    voice_id: z.string().default(""),
+    model: z.string().default(""),
+    speed: z.number().min(0.5).max(2).nullable().default(null),
+    gain_db: z.number().min(-12).max(12).default(0),
+  })
     .nullable()
     .default(null),
 });
 
-export const CharacterGroupSchema = z.looseObject({
+export const CharacterGroupSchema = obj({
   id: slug,
   character_ids: z.array(slug).min(2, "A group needs at least two characters."),
   description: z.string().default(""),
 });
 
-export const WorldVariableSchema = z.looseObject({
+export const WorldVariableSchema = obj({
   id: slug,
   type: z.enum(WORLD_VARIABLE_TYPES),
   initial: z.union([z.number(), z.string()]),
@@ -315,26 +332,26 @@ export const WorldVariableSchema = z.looseObject({
   max_step_per_segment: z.number().positive().nullable().default(null),
 });
 
-export const CameraAngleSchema = z.looseObject({
+export const CameraAngleSchema = obj({
   id: slug,
   name: z.string().default(""),
   prompt: nonEmpty,
 });
 
-export const LocationStateSchema = z.looseObject({
+export const LocationStateSchema = obj({
   id: slug,
   description: z.string().default(""),
   is_base: z.boolean().default(false),
   derived_from: slug.nullable().default(null),
 });
 
-export const KeyPropSchema = z.looseObject({
+export const KeyPropSchema = obj({
   id: slug,
   description: nonEmpty,
   default_position: z.string().default(""),
 });
 
-export const LocationSchema = z.looseObject({
+export const LocationSchema = obj({
   id: slug,
   name: nonEmpty,
   tags: z.array(z.string()).default([]),
@@ -345,30 +362,29 @@ export const LocationSchema = z.looseObject({
   key_props: z.array(KeyPropSchema).default([]),
 });
 
-export const SceneBibleSchema = z.looseObject({
+export const SceneBibleSchema = obj({
   world_variables: z.array(WorldVariableSchema).default([]),
   locations: z.array(LocationSchema).default([]),
 });
 
-export const ChannelSchema = z.looseObject({
+export const ChannelSchema = obj({
   channel_name: nonEmpty,
-  recurring_cameo: z
-    .looseObject({
-      description: nonEmpty,
-      rule: z.string().default(""),
-      min_segments_per_episode: z.number().int().min(0).nullable().default(null),
-    })
+  recurring_cameo: obj({
+    description: nonEmpty,
+    rule: z.string().default(""),
+    min_segments_per_episode: z.number().int().min(0).nullable().default(null),
+  })
     .nullable()
     .default(null),
 });
 
-export const ReferenceAssetSchema = z.looseObject({
+export const ReferenceAssetSchema = obj({
   id: slug,
   description: z.string().default(""),
   asset_url_or_path: z.string().default(""),
 });
 
-export const StyleBibleSchema = z.looseObject({
+export const StyleBibleSchema = obj({
   global_style_prompt: nonEmpty,
   negative_prompt: z.string().default(""),
   aspect_ratio: z.literal("16:9").default("16:9"),
@@ -380,12 +396,12 @@ export const StyleBibleSchema = z.looseObject({
   flashback_treatment_prompt: z.string().default(DEFAULT_FLASHBACK_TREATMENT),
 });
 
-export const RetrySchema = z.looseObject({
+export const RetrySchema = obj({
   max_attempts: z.number().int().min(1).max(10).default(3),
   backoff_sec: z.number().int().min(0).max(86400).default(60),
 });
 
-export const BotTriggerSchema = z.looseObject({
+export const BotTriggerSchema = obj({
   trigger_id: slug,
   bot_task_type: z.enum(BOT_TASK_TYPES),
   fire_when: z.enum(PIPELINE_FIRE_STATES).default("VALIDATED"),
@@ -397,7 +413,7 @@ export const BotTriggerSchema = z.looseObject({
   timeout_minutes: z.number().int().min(5).max(24 * 60).default(180),
 });
 
-export const StoryDefaultsSchema = z.looseObject({
+export const StoryDefaultsSchema = obj({
   voice: VoiceSchema.prefault({}),
   audio: AudioSchema.prefault({}),
   render: RenderSchema.prefault({}),
@@ -405,12 +421,12 @@ export const StoryDefaultsSchema = z.looseObject({
   structure: StructureSchema.prefault({}),
 });
 
-export const StoryAutomationSchema = z.looseObject({
-  approval_gates: z.looseObject({ location_masters: z.boolean().default(true) }).prefault({}),
+export const StoryAutomationSchema = obj({
+  approval_gates: obj({ location_masters: z.boolean().default(true) }).prefault({}),
   bot_triggers: z.array(BotTriggerSchema).default([]),
 });
 
-export const StoryBibleSchema = z.looseObject({
+const storyBibleShape = {
   schema_version: schemaVersion,
   doc_type: z.literal("story_bible"),
   story_id: slug,
@@ -426,16 +442,16 @@ export const StoryBibleSchema = z.looseObject({
   scene_bible: SceneBibleSchema.prefault({}),
   defaults: StoryDefaultsSchema.prefault({}),
   automation: StoryAutomationSchema.prefault({}),
-});
+};
+
+export const StoryBibleSchema = obj(storyBibleShape);
 
 /** The bible as stored: `{ ref }` entries already expanded into full characters. */
-export const StoredStoryBibleSchema = StoryBibleSchema.extend({
-  characters: z.array(CharacterSchema).default([]),
-});
+export const StoredStoryBibleSchema = obj({ ...storyBibleShape, characters: z.array(CharacterSchema).default([]) });
 
 // ── Episode ─────────────────────────────────────────────────────────────────
 
-export const SeriesSchema = z.looseObject({
+export const SeriesSchema = obj({
   episode_number: z.number().int().min(1),
   episode_title_short: nonEmpty,
   recap_of_previous: z.string().default(""),
@@ -446,7 +462,7 @@ export const SeriesSchema = z.looseObject({
   is_finale: z.boolean().default(false),
 });
 
-export const SceneCharacterSchema = z.looseObject({
+export const SceneCharacterSchema = obj({
   character_id: slug,
   outfit_state_id: slug.nullable().default(null),
   pose_or_action: z.string().default(""),
@@ -454,7 +470,7 @@ export const SceneCharacterSchema = z.looseObject({
   cameo: z.boolean().default(false),
 });
 
-export const StateChangeSchema = z.looseObject({
+export const StateChangeSchema = obj({
   location_id: slug,
   from_state_id: slug,
   to_state_id: slug,
@@ -464,7 +480,7 @@ export const StateChangeSchema = z.looseObject({
 
 const worldValue = z.union([z.number(), z.string()]);
 
-export const SceneSchema = z.looseObject({
+export const SceneSchema = obj({
   location_id: slug,
   state_id: slug,
   camera_angle_id: slug,
@@ -480,20 +496,20 @@ export const SceneSchema = z.looseObject({
   pov_exception_reason: z.string().trim().min(1).max(160).nullable().default(null),
 });
 
-export const ThumbnailSceneSchema = z.looseObject({
+export const ThumbnailSceneSchema = obj({
   location_id: slug,
   state_id: slug,
   camera_angle_id: slug,
   world_state: z.record(z.string(), worldValue).default({}),
 });
 
-export const FocalPointSchema = z.looseObject({
+export const FocalPointSchema = obj({
   label: z.string().default(""),
   x: unit,
   y: unit,
 });
 
-export const ImageSchema = z.looseObject({
+export const ImageSchema = obj({
   prompt: z.string().default(""),
   focal_points: z.array(FocalPointSchema).default([]),
   crop_override: CropOverrideSchema.nullable().default(null),
@@ -501,7 +517,7 @@ export const ImageSchema = z.looseObject({
   reuse_from_segment_id: slug.nullable().default(null),
 });
 
-export const RemotionItemSchema = z.looseObject({
+export const RemotionItemSchema = obj({
   label: z.string().default(""),
   value: z.union([z.string(), z.number()]).nullable().default(null),
   icon: z.string().default(""),
@@ -509,7 +525,7 @@ export const RemotionItemSchema = z.looseObject({
   icon_total: z.number().int().min(0).max(100).nullable().default(null),
 });
 
-export const RemotionPropsSchema = z.looseObject({
+export const RemotionPropsSchema = obj({
   title: z.string().nullable().default(null),
   subtitle: z.string().nullable().default(null),
   body: z.string().nullable().default(null),
@@ -524,12 +540,12 @@ export const RemotionPropsSchema = z.looseObject({
   character_id: slug.nullable().default(null),
 });
 
-export const RemotionSchema = z.looseObject({
+export const RemotionSchema = obj({
   template: z.enum(REMOTION_TEMPLATES),
   props: RemotionPropsSchema.prefault({}),
 });
 
-export const SfxCueSchema = z.looseObject({
+export const SfxCueSchema = obj({
   id: slug,
   search_query: nonEmpty,
   alt_queries: z.array(z.string()).default([]),
@@ -546,7 +562,7 @@ export const SfxCueSchema = z.looseObject({
   continues_into_next: z.boolean().default(false),
 });
 
-export const LineSchema = z.looseObject({
+export const LineSchema = obj({
   id: slug,
   /** "narrator" or a character id. */
   speaker: slug,
@@ -560,15 +576,19 @@ export const LineSchema = z.looseObject({
   caption_text: z.string().nullable().default(null),
 });
 
-export const SegmentSchema = z.looseObject({
+export const SegmentSchema = obj({
   id: slug,
   order: z.number().int().min(1),
   type: z.enum(SEGMENT_TYPES),
   role: z.enum(SEGMENT_ROLES).default("main"),
   narration: z.string().default(""),
   tts_text: z.string().nullable().default(null),
-  /** Multi-speaker alternative to narration (one or the other). */
-  lines: z.array(LineSchema).min(1, "lines needs at least one line (or use narration).").nullable().default(null),
+  /** Multi-speaker alternative to narration (one or the other). An empty list means no lines (e.g. a silent card). */
+  lines: z
+    .array(LineSchema)
+    .nullable()
+    .default(null)
+    .transform((l) => (l?.length ? l : null)),
   caption_text: z.string().nullable().default(null),
   delivery: z.string().max(120).nullable().default(null),
   sentence_split_override: z.array(z.string().trim().min(1)).nullable().default(null),
@@ -581,14 +601,14 @@ export const SegmentSchema = z.looseObject({
   transition_out: z.enum(TRANSITIONS).default("cut"),
 });
 
-export const ThumbnailTextLayerSchema = z.looseObject({
+export const ThumbnailTextLayerSchema = obj({
   text: nonEmpty,
   style: z.enum(THUMBNAIL_TEXT_STYLES).default("impact_white_black_outline"),
   position: z.enum(THUMBNAIL_POSITIONS).default("top_center"),
   max_font_size_px: z.number().int().min(24).max(400).default(200),
 });
 
-export const ThumbnailSchema = z.looseObject({
+export const ThumbnailSchema = obj({
   image_prompt: nonEmpty,
   scene: ThumbnailSceneSchema.nullable().default(null),
   characters_present: z.array(slug).default([]),
@@ -598,7 +618,7 @@ export const ThumbnailSchema = z.looseObject({
   alt_variants: z.number().int().min(0).max(2).default(0),
 });
 
-export const YoutubeSchema = z.looseObject({
+export const YoutubeSchema = obj({
   channel_name: z.string().default(""),
   title: nonEmpty,
   description: z.string().default(""),
@@ -618,23 +638,22 @@ export const YoutubeSchema = z.looseObject({
   chapters_from_segments: z.boolean().default(true),
 });
 
-export const ChapterSchema = z.looseObject({
+export const ChapterSchema = obj({
   segment_id: slug,
   title: z.string().trim().min(1).max(100),
 });
 
-export const AutomationSchema = z.looseObject({
+export const AutomationSchema = obj({
   auto_start_on_submit: z.boolean().default(true),
-  approval_gates: z
-    .looseObject({
-      before_render: z.boolean().default(false),
-      before_publish: z.boolean().default(false),
-    })
+  approval_gates: obj({
+    before_render: z.boolean().default(false),
+    before_publish: z.boolean().default(false),
+  })
     .prefault({}),
   bot_triggers: z.array(BotTriggerSchema).default([]),
 });
 
-export const OverridesSchema = z.looseObject({
+export const OverridesSchema = obj({
   voice: VoiceOverrideSchema.optional(),
   audio: AudioOverrideSchema.optional(),
   render: RenderOverrideSchema.optional(),
@@ -642,18 +661,18 @@ export const OverridesSchema = z.looseObject({
   structure: StructureOverrideSchema.optional(),
 });
 
-export const BibleAdditionsSchema = z.looseObject({
+export const BibleAdditionsSchema = obj({
   characters: z.array(CharacterSchema).default([]),
   locations: z.array(LocationSchema).default([]),
-  location_states: z.array(z.looseObject({ location_id: slug, state: LocationStateSchema })).default([]),
-  camera_angles: z.array(z.looseObject({ location_id: slug, angle: CameraAngleSchema })).default([]),
-  key_props: z.array(z.looseObject({ location_id: slug, prop: KeyPropSchema })).default([]),
-  outfit_states: z.array(z.looseObject({ character_id: slug, outfit: OutfitStateSchema })).default([]),
+  location_states: z.array(obj({ location_id: slug, state: LocationStateSchema })).default([]),
+  camera_angles: z.array(obj({ location_id: slug, angle: CameraAngleSchema })).default([]),
+  key_props: z.array(obj({ location_id: slug, prop: KeyPropSchema })).default([]),
+  outfit_states: z.array(obj({ character_id: slug, outfit: OutfitStateSchema })).default([]),
   world_variables: z.array(WorldVariableSchema).default([]),
   character_groups: z.array(CharacterGroupSchema).default([]),
 });
 
-export const CharacterStatusChangeSchema = z.looseObject({
+export const CharacterStatusChangeSchema = obj({
   character_id: slug,
   to_status: z.enum(CHARACTER_STATUSES),
   at_segment_id: slug,
@@ -667,15 +686,15 @@ export const CharacterStatusChangeSchema = z.looseObject({
  * the same facts in `series`; normalizeEpisodeHeader (lib/episode/header.ts) fills one from the other before
  * parsing, so `series.episode_number` / `series.episode_title_short` / `series.is_finale` are always set.
  */
-export const EpisodeDocSchema = z.looseObject({
+export const EpisodeDocSchema = obj({
   schema_version: schemaVersion,
   doc_type: z.literal("episode"),
   story_id: slug,
   /** Informational: a mismatch with the stored title is a warning and the stored title wins. */
   story_title: z.string().optional(),
-  episode_number: z.number().int().min(1).optional(),
-  /** Also the default YouTube title. */
-  episode_title: nonEmpty.optional(),
+  episode_number: z.number({ error: '"episode_number" is required in the 2.3 episode header.' }).int().min(1),
+  /** Should be unique within the story; used in the default YouTube title. */
+  episode_title: z.string({ error: '"episode_title" is required in the 2.3 episode header.' }).trim().min(1, '"episode_title" must not be empty.'),
   is_finale: z.boolean().optional(),
   series: SeriesSchema,
   segments: z.array(SegmentSchema).min(1, "At least one segment is required."),
@@ -688,7 +707,7 @@ export const EpisodeDocSchema = z.looseObject({
   bible_additions: BibleAdditionsSchema.prefault({}),
 });
 
-export const BundleSchema = z.looseObject({
+export const BundleSchema = obj({
   schema_version: schemaVersion,
   doc_type: z.literal("bundle"),
   story_bible: StoryBibleSchema,

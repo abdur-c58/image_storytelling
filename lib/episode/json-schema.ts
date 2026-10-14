@@ -32,7 +32,7 @@ type JsonObj = { [k: string]: unknown; required?: string[]; properties?: Record<
  */
 function relaxEpisode(ep: JsonObj | undefined) {
   if (!ep?.properties) return;
-  ep.required = [...(ep.required ?? []).filter((r) => r !== "series"), "episode_number", "episode_title"];
+  ep.required = [...new Set([...(ep.required ?? []).filter((r) => r !== "series"), "episode_number", "episode_title"])];
   const series = ep.properties.series;
   if (series) series.required = (series.required ?? []).filter((r) => r !== "episode_number" && r !== "episode_title_short");
   const youtube = ep.properties.youtube;
@@ -41,7 +41,16 @@ function relaxEpisode(ep: JsonObj | undefined) {
 
 export function documentJsonSchema(docType: SchemaDocType) {
   const d = DOCS[docType];
-  const jsonSchema = z.toJSONSchema(d.schema, { io: "input", target: "draft-2020-12", unrepresentable: "any" }) as JsonObj;
+  const jsonSchema = z.toJSONSchema(d.schema, {
+    io: "input",
+    target: "draft-2020-12",
+    unrepresentable: "any",
+    // zod drops input defaults under a transform; every object has one (null-as-missing preprocess), so put them back.
+    override: ({ zodSchema, jsonSchema: out }) => {
+      const def = zodSchema._zod.def as { type: string; defaultValue?: unknown };
+      if (def.type === "default" && out.default === undefined) out.default = JSON.parse(JSON.stringify(def.defaultValue));
+    },
+  }) as JsonObj;
   if (docType === "episode") relaxEpisode(jsonSchema);
   if (docType === "bundle") relaxEpisode(jsonSchema.properties?.episode);
   return {
