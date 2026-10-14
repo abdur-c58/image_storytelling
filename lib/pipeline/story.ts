@@ -1,13 +1,13 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { sha256Hex } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
 import { assets, episodes, projects, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
 import { initialStoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
-import { buildMasterItems, type MasterItem } from "@/lib/episode/prompt";
+import { buildMasterItems, episodeMasterKeys, type MasterItem } from "@/lib/episode/prompt";
 import { NARRATOR } from "@/lib/episode/constants";
 import { applyBibleAdditions, upgradeStoredBible } from "@/lib/episode/resolve";
-import { StoryDefaultsSchema, type BibleAdditions, type StoryBible } from "@/lib/episode/schema";
+import { StoryDefaultsSchema, type BibleAdditions, type Episode, type StoryBible } from "@/lib/episode/schema";
 import type { StoryContext } from "@/lib/episode/validate";
 import { createTask, logEvent, type Owner } from "@/lib/queue";
 import { getStorage, storyObjectPrefix } from "@/lib/storage";
@@ -365,12 +365,126 @@ function trigger(bible: StoryBible, type = "generate_location_master") {
   );
 }
 
-/** Idempotent: queue missing masters, recompute the story state, and wake episodes waiting on masters. */
+/**
+ * Masters wait in the queue below every episode task (images 10, thumbnail 9, upload 8), so the bot finishes
+ * episodes before making masters for later ones. Manual regenerations keep their own higher priority.
+ */
+export const MASTER_PRIORITY = 6;
+
+const masterKeysOf = (t: TaskRow) => ((t.payload as { items?: { master_key: string }[] }).items ?? []).map((i) => i.master_key);
+
+/**
+ * Masters the story's episodes need, each mapped to the first episode that needs it. Only active versions that
+ * have been started and are not published count; masters no such episode uses are not generated.
+ */
+export async function masterDemand(db: Db, storyId: string): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ episode: projects.episode, number: projects.episodeNumber })
+    .from(episodes)
+    .innerJoin(projects, eq(projects.id, episodes.activeVersionId))
+    .where(and(eq(episodes.storyId, storyId), eq(projects.archived, false), isNull(projects.publishedAt), ne(projects.state, "DRAFT")));
+  const demand = new Map<string, number>();
+  for (const r of rows.sort((a, b) => a.number - b.number)) {
+    for (const key of episodeMasterKeys(r.episode as Episode)) if (!demand.has(key)) demand.set(key, r.number);
+  }
+  return demand;
+}
+
+/**
+ * Queue the masters that started episodes need and are not yet requested, earliest episode first. Queued
+ * batches nobody needs any more (or queued at the old priority) are withdrawn and re-batched; a batch the bot
+ * is already working on is left alone. Does not advance episodes, so the episode state machine may call it.
+ * Returns whether any batch was withdrawn or queued.
+ */
+export async function requestNeededMasters(db: Db, storyId: string): Promise<boolean> {
+  return db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    await tx.execute(sql`SELECT id FROM stories WHERE id = ${storyId} FOR UPDATE`);
+    const story = await getStory(tx, storyId);
+    if (!story || !story.bible || story.status === "deleted" || !mastersGateOn(story.bible as StoryBible)) return false;
+    const bible = story.bible as StoryBible;
+    const demand = await masterDemand(tx, storyId);
+    let changed = false;
+
+    let storyTasks = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.storyId, storyId), inArray(tasks.type, MASTER_TASK_TYPES)));
+    const stale = storyTasks.filter(
+      (t) => t.status === "queued" && !t.scope.startsWith("regen:") && (t.priority !== MASTER_PRIORITY || masterKeysOf(t).some((k) => !demand.has(k))),
+    );
+    if (stale.length) {
+      const withdrawn = await tx
+        .update(tasks)
+        .set({ status: "cancelled", error: "Withdrawn: masters are now made only when an episode needs them.", updatedAt: new Date() })
+        .where(and(inArray(tasks.id, stale.map((t) => t.id)), eq(tasks.status, "queued")))
+        .returning();
+      const keys = withdrawn.flatMap(masterKeysOf);
+      if (keys.length) {
+        await tx
+          .update(storyMasters)
+          .set({ status: "missing", attempts: sql`greatest(${storyMasters.attempts} - 1, 0)`, updatedAt: new Date() })
+          .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, keys), eq(storyMasters.status, "requested")));
+      }
+      if (withdrawn.length) {
+        await logEvent(tx, { storyId }, null, "info", `Withdrew ${withdrawn.length} queued master batch(es); masters are re-queued in episode order as episodes need them.`);
+      }
+      if (withdrawn.length) changed = true;
+      const gone = new Set(withdrawn.map((t) => t.id));
+      storyTasks = storyTasks.map((t) => (gone.has(t.id) ? { ...t, status: "cancelled" } : t));
+    }
+
+    const activeKeys = new Set(storyTasks.filter(isActive).flatMap(masterKeysOf));
+    let rows = await tx.select().from(storyMasters).where(eq(storyMasters.storyId, storyId));
+
+    // A request whose task ended without an upload goes back to "missing".
+    const orphaned = rows.filter((r) => r.status === "requested" && !activeKeys.has(r.masterKey)).map((r) => r.masterKey);
+    if (orphaned.length) {
+      await tx
+        .update(storyMasters)
+        .set({ status: "missing" })
+        .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, orphaned)));
+      rows = rows.map((r) => (orphaned.includes(r.masterKey) ? { ...r, status: "missing" } : r));
+    }
+
+    const toRequest = rows
+      .filter((r) => r.status === "missing" && r.attempts < MAX_MASTER_ATTEMPTS && !activeKeys.has(r.masterKey) && demand.has(r.masterKey))
+      .sort((a, b) => demand.get(a.masterKey)! - demand.get(b.masterKey)! || a.masterKey.localeCompare(b.masterKey));
+    let batchNo = storyTasks.length;
+    for (const type of MASTER_TASK_TYPES) {
+      const ofType = toRequest.filter((r) => taskTypeFor(r) === type);
+      const t = trigger(bible, type);
+      const size = t?.batch_size ?? 8;
+      for (let i = 0; i < ofType.length; i += size) {
+        const batch = ofType.slice(i, i + size);
+        batchNo++;
+        changed = true;
+        await createTask(tx, {
+          storyId,
+          kind: "bot",
+          type,
+          scope: `${type === GROUP_TASK ? "groups" : "masters"}:${String(batchNo).padStart(2, "0")}`,
+          payload: masterTaskPayload(story, batch),
+          priority: MASTER_PRIORITY,
+          maxAttempts: t?.retry.max_attempts ?? 3,
+          backoffSec: t?.retry.backoff_sec ?? 60,
+          timeoutMinutes: t?.timeout_minutes ?? 180,
+        });
+        await tx
+          .update(storyMasters)
+          .set({ status: "requested", attempts: sql`${storyMasters.attempts} + 1`, updatedAt: new Date() })
+          .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, batch.map((r) => r.masterKey))));
+      }
+    }
+    return changed;
+  });
+}
+
+/** Idempotent: queue the masters episodes need, recompute the story state, and wake episodes waiting on masters. */
 export async function advanceStory(db: Db, storyId: string): Promise<void> {
   const story = await getStory(db, storyId);
   if (!story || !story.bible || story.status === "deleted") return;
   const bible = story.bible as StoryBible;
-  const owner: Owner = { storyId };
 
   if (!mastersGateOn(bible)) {
     await db
@@ -381,76 +495,41 @@ export async function advanceStory(db: Db, storyId: string): Promise<void> {
     return;
   }
 
-  const storyTasks = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.storyId, storyId), inArray(tasks.type, MASTER_TASK_TYPES)));
-  const activeKeys = new Set(
-    storyTasks.filter(isActive).flatMap((t) => ((t.payload as { items?: { master_key: string }[] }).items ?? []).map((i) => i.master_key)),
-  );
-  let rows = await db.select().from(storyMasters).where(eq(storyMasters.storyId, storyId));
+  await requestNeededMasters(db, storyId);
+  await refreshMastersState(db, story);
+  await wakeEpisodes(db, storyId);
+}
 
-  // A request whose task ended without an upload goes back to "missing".
-  const orphaned = rows.filter((r) => r.status === "requested" && !activeKeys.has(r.masterKey)).map((r) => r.masterKey);
-  if (orphaned.length) {
-    await db
-      .update(storyMasters)
-      .set({ status: "missing" })
-      .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, orphaned)));
-    rows = rows.map((r) => (orphaned.includes(r.masterKey) ? { ...r, status: "missing" } : r));
-  }
-
-  const toRequest = rows.filter((r) => r.status === "missing" && r.attempts < MAX_MASTER_ATTEMPTS && !activeKeys.has(r.masterKey));
-  const exhausted = rows.filter((r) => r.status === "missing" && r.attempts >= MAX_MASTER_ATTEMPTS);
-  if (toRequest.length) {
-    let batchNo = storyTasks.length;
-    for (const type of MASTER_TASK_TYPES) {
-      const ofType = toRequest.filter((r) => taskTypeFor(r) === type);
-      const t = trigger(bible, type);
-      const size = t?.batch_size ?? 8;
-      for (let i = 0; i < ofType.length; i += size) {
-        const batch = ofType.slice(i, i + size);
-        batchNo++;
-        await createTask(db, {
-          storyId,
-          kind: "bot",
-          type,
-          scope: `${type === GROUP_TASK ? "groups" : "masters"}:${String(batchNo).padStart(2, "0")}`,
-          payload: masterTaskPayload(story, batch),
-          priority: 11,
-          maxAttempts: t?.retry.max_attempts ?? 3,
-          backoffSec: t?.retry.backoff_sec ?? 60,
-          timeoutMinutes: t?.timeout_minutes ?? 180,
-        });
-        await db
-          .update(storyMasters)
-          .set({ status: "requested", attempts: sql`${storyMasters.attempts} + 1`, updatedAt: new Date() })
-          .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, batch.map((r) => r.masterKey))));
-      }
-    }
-    rows = await db.select().from(storyMasters).where(eq(storyMasters.storyId, storyId));
-  }
+/** Recompute the story's masters state and summary line. */
+export async function refreshMastersState(db: Db, story: StoryRow): Promise<void> {
+  const storyId = story.id;
+  const owner: Owner = { storyId };
+  const demand = await masterDemand(db, storyId);
+  const rows = await db.select().from(storyMasters).where(eq(storyMasters.storyId, storyId));
 
   const count = (s: string) => rows.filter((r) => r.status === s).length;
   const approved = count("approved");
   const generated = count("generated");
   const requested = count("requested");
+  const exhausted = rows.filter((r) => r.status === "missing" && r.attempts >= MAX_MASTER_ATTEMPTS);
+  const notNeeded = rows.filter((r) => r.status === "missing" && !demand.has(r.masterKey)).length;
+  const neededOpen = rows.some((r) => demand.has(r.masterKey) && r.status !== "approved");
   let state: StoryStateName;
-  if (rows.length && approved === rows.length) state = "MASTERS_APPROVED";
-  else if (requested > 0) state = "LOCATION_MASTERS_REQUESTED";
+  if (requested > 0) state = "LOCATION_MASTERS_REQUESTED";
   else if (generated > 0) state = "MASTERS_REVIEW";
-  else state = rows.length ? "STORY_VALIDATED" : "MASTERS_APPROVED";
+  else if (neededOpen) state = "STORY_VALIDATED";
+  else state = "MASTERS_APPROVED";
   const detail = [
     `${approved}/${rows.length} masters approved`,
     generated ? `${generated} awaiting review` : "",
     requested ? `${requested} being generated` : "",
+    notNeeded ? `${notNeeded} not needed by any episode yet` : "",
     exhausted.length ? `${exhausted.length} failed after ${MAX_MASTER_ATTEMPTS} attempts (regenerate to retry)` : "",
   ]
     .filter(Boolean)
     .join(" · ");
   if (state !== story.state) await logEvent(db, owner, null, "info", `Story state ${story.state} → ${state}.`);
   await db.update(stories).set({ state, stateDetail: detail, updatedAt: new Date() }).where(eq(stories.id, storyId));
-  await wakeEpisodes(db, storyId);
 }
 
 /** Re-run the state machine of every episode that may be waiting on this story's masters. */

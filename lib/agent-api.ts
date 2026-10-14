@@ -1,10 +1,10 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne, notLike } from "drizzle-orm";
 import { z } from "zod";
 import { createAsset, findReadyBySha, markAssetReady } from "@/lib/assets";
 import { sha256Hex } from "@/lib/crypto";
 import { getDb, type Db } from "@/lib/db";
-import { assets, projects, stories, type AssetRow, type TaskRow } from "@/lib/db/schema";
+import { assets, projects, stories, tasks, type AssetRow, type TaskRow } from "@/lib/db/schema";
 import type { ImageItem } from "@/lib/episode/prompt";
 import type { Episode, StoryBible } from "@/lib/episode/schema";
 import { env } from "@/lib/env";
@@ -13,7 +13,7 @@ import { checkGeneratedImage, contentTypeForFormat } from "@/lib/images";
 import { advance } from "@/lib/pipeline/advance";
 import { finalizeWorkerAssets, onTaskCompleted } from "@/lib/pipeline/complete";
 import { hydrateTask } from "@/lib/pipeline/payloads";
-import { advanceStory } from "@/lib/pipeline/story";
+import { advanceStory, MASTER_PRIORITY } from "@/lib/pipeline/story";
 import {
   BOT_TASK_TYPES,
   completeTask,
@@ -105,6 +105,19 @@ export async function advanceOwner(db: Db, owner: Owner) {
 
 async function sweep(db: Db) {
   for (const owner of await reapExpired(db)) await advanceOwner(db, owner);
+  // Master batches queued at another priority predate on-demand masters; re-plan their stories before leasing.
+  const legacy = await db
+    .selectDistinct({ storyId: tasks.storyId })
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.type, ["generate_location_master", "generate_character_group_master"]),
+        eq(tasks.status, "queued"),
+        ne(tasks.priority, MASTER_PRIORITY),
+        notLike(tasks.scope, "regen:%"),
+      ),
+    );
+  for (const { storyId } of legacy) if (storyId) await advanceStory(db, storyId);
 }
 
 /** Width below which an accepted image is flagged for upscaling (the worker upscales before render). */

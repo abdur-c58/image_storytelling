@@ -234,14 +234,14 @@ export function MasterCard({ storyId, master }: { storyId: string; master: Maste
           <p className="truncate text-sm font-medium">{master.label}</p>
           <p className="truncate font-mono text-muted">{master.key}</p>
         </div>
-        <span className={`chip ${STATUS_TONE[master.status] ?? ""}`}>{master.status}</span>
+        <span className={`chip ${STATUS_TONE[master.status] ?? ""}`}>{master.status === "missing" ? "not needed yet" : master.status}</span>
       </div>
       {shown ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={shown.url} alt={master.label} className="aspect-video w-full rounded-lg border border-line object-cover" />
       ) : (
         <div className="dot-grid flex aspect-video items-center justify-center rounded-lg border border-line text-muted">
-          {master.status === "requested" ? "waiting for the bot" : "no image"}
+          {master.status === "requested" ? "waiting for the bot" : "made when an episode needs it"}
         </div>
       )}
       {master.candidates.length > 1 && (
@@ -288,7 +288,7 @@ export function MasterCard({ storyId, master }: { storyId: string; master: Maste
           <StoryActionButton
             storyId={storyId}
             action={{ kind: "regen_master", masterKey: master.key }}
-            label="Regenerate"
+            label={master.status === "missing" && !master.candidates.length ? "Make now" : "Regenerate"}
             small
             confirm={master.status === "approved" ? "Drop the approved image and ask the bot for a new one? Episodes waiting on this master will wait again." : undefined}
           />

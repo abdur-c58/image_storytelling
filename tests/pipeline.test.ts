@@ -20,8 +20,8 @@ import { rerollCrops } from "@/lib/pipeline/crop";
 import { ingestDocument } from "@/lib/pipeline/ingest";
 import { hydrateTask } from "@/lib/pipeline/payloads";
 import { assetKeys, orderedSegments, requirements } from "@/lib/pipeline/requirements";
-import { advanceStory, approveAllGenerated, saveStory, supersetProblems } from "@/lib/pipeline/story";
-import { completeTask, failTask, heartbeatTask, leaseNext, reapExpired } from "@/lib/queue";
+import { advanceStory, approveAllGenerated, MASTER_PRIORITY, masterDemand, saveStory, supersetProblems } from "@/lib/pipeline/story";
+import { completeTask, createTask, failTask, heartbeatTask, leaseNext, reapExpired } from "@/lib/queue";
 import { getStorage, projectObjectPrefix } from "@/lib/storage";
 
 const fixture = (name: string) => readFileSync(path.join(__dirname, "..", "fixtures", name), "utf8");
@@ -356,9 +356,18 @@ describe("stories (schema 2.0)", () => {
     expect(reviewing.state).toBe("MASTERS_REVIEW");
     expect((await project(id)).state).toBe("WAITING_MASTERS");
 
-    expect(await approveAllGenerated(db, "gated-story")).toBe(13);
+    // Only the masters this episode uses are made; the rest wait for an episode that needs them.
+    const needed = await masterDemand(db, "gated-story");
+    expect(needed.size).toBeGreaterThan(0);
+    expect(needed.size).toBeLessThan(13);
+    const masterTasks = await db.select().from(tasks).where(and(eq(tasks.storyId, "gated-story"), eq(tasks.type, "generate_location_master")));
+    expect(masterTasks.every((t) => t.priority === MASTER_PRIORITY)).toBe(true);
+    expect(await approveAllGenerated(db, "gated-story")).toBe(needed.size);
     const [approved] = await db.select().from(stories).where(eq(stories.id, "gated-story"));
     expect(approved.state).toBe("MASTERS_APPROVED");
+    expect(approved.stateDetail).toMatch(/not needed by any episode yet/);
+    const idle = await db.select().from(storyMasters).where(eq(storyMasters.storyId, "gated-story"));
+    expect(idle.filter((m) => !needed.has(m.masterKey)).every((m) => m.status === "missing")).toBe(true);
 
     const imageTask = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "generate_images"))))[0];
     expect(imageTask).toBeDefined();
@@ -391,6 +400,32 @@ describe("stories (schema 2.0)", () => {
 
     const again = await ingestDocument(db, text);
     expect(again.validation.errors).toEqual([]);
+  });
+
+  it("withdraws queued master batches no episode needs, but leaves a leased one alone", async () => {
+    await clearQueue();
+    const b = bibleRaw();
+    b.story_id = "idle-story";
+    await saveStory(db, StoredStoryBibleSchema.parse(b), JSON.stringify(b), []);
+    expect(await db.select().from(tasks).where(eq(tasks.storyId, "idle-story"))).toEqual([]);
+
+    const rows = await db.select().from(storyMasters).where(eq(storyMasters.storyId, "idle-story"));
+    const legacy = (keys: string[], scope: string) =>
+      createTask(db, { storyId: "idle-story", kind: "bot", type: "generate_location_master", scope, priority: 11, payload: { items: keys.map((k) => ({ master_key: k })) } });
+    const queued = await legacy(rows.slice(0, 8).map((r) => r.masterKey), "masters:01");
+    const leased = await legacy(rows.slice(8, 10).map((r) => r.masterKey), "masters:02");
+    await db.update(tasks).set({ status: "leased" }).where(eq(tasks.id, leased.id));
+    await db.update(storyMasters).set({ status: "requested", attempts: 1 }).where(eq(storyMasters.storyId, "idle-story"));
+
+    await advanceStory(db, "idle-story");
+    const after = await db.select().from(tasks).where(eq(tasks.storyId, "idle-story"));
+    expect(after.find((t) => t.id === queued.id)!.status).toBe("cancelled");
+    expect(after.find((t) => t.id === leased.id)!.status).toBe("leased");
+    expect(after.filter((t) => t.status === "queued")).toEqual([]);
+    const masters = new Map((await db.select().from(storyMasters).where(eq(storyMasters.storyId, "idle-story"))).map((m) => [m.masterKey, m]));
+    expect(masters.get(rows[0].masterKey)).toMatchObject({ status: "missing", attempts: 0 });
+    expect(masters.get(rows[8].masterKey)!.status).toBe("requested");
+    await db.update(tasks).set({ status: "cancelled" }).where(eq(tasks.id, leased.id));
   });
 
   it("writes a crop plan after align, and a re-roll redoes only the render", async () => {

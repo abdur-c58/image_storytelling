@@ -1,4 +1,4 @@
-import { DEFAULT_FLASHBACK_TREATMENT, DEFAULT_MULTI_CHARACTER_NEGATIVE } from "./constants";
+import { DEFAULT_FLASHBACK_TREATMENT, DEFAULT_MULTI_CHARACTER_NEGATIVE, NAME_CARD_TEMPLATE } from "./constants";
 import { baseStateId, defaultOutfitId, groupsIn, masterKeyForGroup, masterKeyForOutfit, masterKeyForView, variableApplies } from "./continuity";
 import type { Episode, Location, Segment, StoryBible, StoryCharacter } from "./schema";
 
@@ -302,6 +302,17 @@ export function buildThumbnailItems(episode: Episode): ImageItem[] {
     });
   }
   return items;
+}
+
+/** Every story master an episode's pictures depend on: segment images, thumbnail bases and name-card portraits. */
+export function episodeMasterKeys(episode: Episode): string[] {
+  const keys = new Set([...buildImageItems(episode), ...buildThumbnailItems(episode)].flatMap((i) => i.master_keys));
+  for (const seg of episode.segments) {
+    const cid = seg.remotion?.template === NAME_CARD_TEMPLATE ? seg.remotion.props.character_id : null;
+    const outfit = cid ? episode.story?.characters.find((c) => c.id === cid)?.outfit_states[0]?.id : undefined;
+    if (cid && outfit) keys.add(masterKeyForOutfit({ character_id: cid, outfit_state_id: outfit }));
+  }
+  return [...keys];
 }
 
 // ── Story masters ───────────────────────────────────────────────────────────

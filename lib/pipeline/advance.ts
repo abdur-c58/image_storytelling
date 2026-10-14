@@ -9,7 +9,7 @@ import type { Episode, StoryBible } from "@/lib/episode/schema";
 import { env } from "@/lib/env";
 import { createTask, logEvent, type TaskType } from "@/lib/queue";
 import { assetKeys, INVALIDATES, requirements } from "./requirements";
-import { commitStoryState, mastersGateOn } from "./story";
+import { commitStoryState, getStory, mastersGateOn, refreshMastersState, requestNeededMasters } from "./story";
 
 export const PROJECT_STATES = [
   "DRAFT",
@@ -133,11 +133,11 @@ export async function unapprovedMastersFor(db: Db, project: Pick<ProjectRow, "st
  * and recomputes the project's state. Safe to call after any event.
  */
 export async function advance(db: Db, projectId: string): Promise<void> {
-  await db.transaction(async (txRaw) => {
+  const waitsOnMastersOf = await db.transaction(async (txRaw): Promise<string | null> => {
     const tx = txRaw as unknown as Db;
     await tx.execute(sql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
     const [project] = await tx.select().from(projects).where(eq(projects.id, projectId));
-    if (!project || project.archived || project.state === "DRAFT") return;
+    if (!project || project.archived || project.state === "DRAFT") return null;
     if (project.publishedAt) {
       if (project.state !== "PUBLISHED") {
         await tx.update(projects).set({ state: "PUBLISHED", stateDetail: "Published.", updatedAt: new Date() }).where(eq(projects.id, projectId));
@@ -145,7 +145,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       if (project.storyId && !(project.outputs as { story_state_committed_at?: string }).story_state_committed_at) {
         await commitStoryState(tx, projectId);
       }
-      return;
+      return null;
     }
 
     const ep = project.episode as Episode;
@@ -351,11 +351,16 @@ export async function advance(db: Db, projectId: string): Promise<void> {
           .join(" · ");
       await tx.update(projects).set({ state, stateDetail: detail, error: failure, updatedAt: new Date() }).where(eq(projects.id, projectId));
       if (failure && failure !== project.error) await logEvent(tx, projectId, null, "error", failure);
-      return;
+      return waitingFor.size && project.storyId ? project.storyId : null;
     }
 
     const deadSummary = dead.map((t) => `${t.type}(${t.scope}): ${t.error ?? "failed"}`).join("; ");
     const detail = failure ?? `Dead-lettered: ${deadSummary}`;
     await tx.update(projects).set({ state: "FAILED", stateDetail: detail, updatedAt: new Date() }).where(eq(projects.id, projectId));
+    return null;
   });
+  if (waitsOnMastersOf && (await requestNeededMasters(db, waitsOnMastersOf))) {
+    const story = await getStory(db, waitsOnMastersOf);
+    if (story) await refreshMastersState(db, story);
+  }
 }
