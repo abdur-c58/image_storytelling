@@ -538,7 +538,7 @@ async function wakeEpisodes(db: Db, storyId: string) {
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.storyId, storyId), eq(projects.archived, false), eq(projects.state, "WAITING_MASTERS")));
+    .where(and(eq(projects.storyId, storyId), eq(projects.archived, false), inArray(projects.state, ["WAITING_MASTERS", "FAILED"])));
   for (const r of rows) await advance(db, r.id);
 }
 
