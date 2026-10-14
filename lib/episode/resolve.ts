@@ -3,6 +3,7 @@ import {
   CropPolicySchema,
   RenderSchema,
   StoredStoryBibleSchema,
+  StructureSchema,
   VoiceSchema,
   type BibleAdditions,
   type CropPolicy,
@@ -12,7 +13,7 @@ import {
   type StoryBible,
   type Voice,
 } from "./schema";
-import { NARRATOR } from "./constants";
+import { NAME_CARD_DEFAULT_SECONDS, NAME_CARD_TEMPLATE, NARRATOR } from "./constants";
 import { segmentLines } from "./lines";
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -80,6 +81,9 @@ export function speakerVoices(story: StoryBible, voice: Voice): Record<string, R
 
 /** Every spoken segment gets `lines`; narration/tts_text/caption_text become the joined lines for whole-text uses. */
 function normaliseLines(seg: EpisodeDoc["segments"][number]): EpisodeDoc["segments"][number] {
+  if (seg.remotion?.template === NAME_CARD_TEMPLATE && seg.min_duration_sec === null) {
+    seg = { ...seg, min_duration_sec: NAME_CARD_DEFAULT_SECONDS };
+  }
   const lines = segmentLines(seg);
   if (!lines.length) return { ...seg, lines: null };
   if (!seg.lines?.length) return { ...seg, lines };
@@ -117,9 +121,25 @@ export function resolveEpisode(bible: StoryBible, doc: EpisodeDoc): Episode {
   });
   const render = RenderSchema.parse({ ...story.defaults.render, ...stripUndefined((o.render ?? {}) as Record<string, unknown>) });
   const crop_policy = mergeCropPolicy(story.defaults.crop_policy, o.crop_policy as Record<string, unknown> | undefined);
+  const structure = StructureSchema.parse({
+    ...(story.defaults.structure ?? {}),
+    ...stripUndefined((o.structure ?? {}) as Record<string, unknown>),
+  });
 
   const rest = clone(doc);
-  rest.segments = rest.segments.map(normaliseLines);
+  const idn = story.narrator.identification;
+  const povId = idn?.pov_character_id ?? story.narrator.pov_character_id;
+  rest.segments = rest.segments.map(normaliseLines).map((s) => {
+    if (s.remotion?.template !== NAME_CARD_TEMPLATE) return s;
+    const props = s.remotion.props;
+    return {
+      ...s,
+      remotion: {
+        ...s.remotion,
+        props: { ...props, text: props.text?.trim() || idn?.name_card?.text || null, character_id: props.character_id ?? povId ?? null },
+      },
+    };
+  });
   return {
     ...rest,
     voices: speakerVoices(story, voice),
@@ -140,6 +160,7 @@ export function resolveEpisode(bible: StoryBible, doc: EpisodeDoc): Episode {
       })),
     },
     voice,
+    structure,
     audio,
     render,
     crop_policy,

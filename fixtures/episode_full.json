@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.1",
+  "schema_version": "2.2",
   "doc_type": "episode",
   "story_id": "rooftop-test",
   "series": {
@@ -29,6 +29,7 @@
     {
       "id": "seg_001",
       "order": 1,
+      "role": "cold_open",
       "type": "title_card",
       "narration": "",
       "silent": true,
@@ -38,6 +39,7 @@
     {
       "id": "seg_002",
       "order": 2,
+      "role": "main",
       "type": "illustration",
       "narration": "The morning the city went quiet, you climbed to the roof.",
       "scene": {
@@ -61,6 +63,7 @@
     {
       "id": "seg_003",
       "order": 3,
+      "role": "main",
       "type": "illustration",
       "narration": "From up here, the streets looked like a model town. Nothing moved at all.",
       "tts_text": "[breath] From up here, the streets looked like a model town. [long pause] Nothing moved at all.",
@@ -85,6 +88,7 @@
     {
       "id": "seg_004",
       "order": 4,
+      "role": "main",
       "type": "illustration",
       "narration": "Back inside, the apartment looked the same as always. The sofa, the window, the yellow fridge. It felt like a normal Tuesday.",
       "scene": {
@@ -101,6 +105,7 @@
     {
       "id": "seg_005",
       "order": 5,
+      "role": "status_board",
       "type": "infographic",
       "narration": "You took stock of what you had.",
       "remotion": {
@@ -117,8 +122,18 @@
       }
     },
     {
-      "id": "seg_006",
+      "id": "seg_name_card",
       "order": 6,
+      "role": "main",
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "remotion": { "template": "name_card", "props": { "text": "THIS IS YOU", "character_id": "protagonist", "background": "dark" } }
+    },
+    {
+      "id": "seg_006",
+      "order": 7,
+      "role": "main",
       "type": "illustration",
       "narration": "It was not enough. You opened every cupboard. You checked behind the fridge. You emptied every drawer onto the floor. In the end you found three cans of beans. That was all.",
       "tts_text": "It was not enough. [pause] You opened every cupboard. You checked behind the fridge. You emptied every drawer onto the floor. In the end you found <emphasis>three cans of beans</emphasis>. [sigh] <whisper>That was all.</whisper>",
@@ -145,14 +160,16 @@
     },
     {
       "id": "seg_007",
-      "order": 7,
+      "order": 8,
+      "role": "main",
       "type": "reuse_image",
       "narration": "You remembered how the place looked this morning. It seemed like a long time ago.",
       "image": { "reuse_from_segment_id": "seg_004" }
     },
     {
       "id": "seg_008",
-      "order": 8,
+      "order": 9,
+      "role": "main",
       "type": "illustration",
       "narration": "That afternoon, the rain came. You dragged a filing cabinet up the stairs. You wedged the door shut.",
       "tts_text": "That afternoon, the rain came. [short pause] You dragged a filing cabinet up the stairs. [breath] You wedged the door shut.",
@@ -174,7 +191,8 @@
     },
     {
       "id": "seg_009",
-      "order": 9,
+      "order": 10,
+      "role": "main",
       "type": "illustration",
       "narration": "Then, through the rain, you heard it. Three slow knocks on the door.",
       "tts_text": "Then, through the rain, you heard it. [long pause] <slow>Three slow knocks on the door.</slow>",
@@ -183,9 +201,8 @@
         "state_id": "barricaded",
         "camera_angle_id": "a",
         "world_state": { "day": 1, "weather": "rain" },
-        "characters_present": [
-          { "character_id": "protagonist", "outfit_state_id": "bandaged", "pose_or_action": "frozen, staring at the door", "position_in_frame": "right" }
-        ]
+        "characters_present": [],
+        "pov_exception_reason": "Only the door: the knocks come from the other side."
       },
       "image": {
         "prompt": "The barricaded red door, rain bouncing off the planks",
@@ -197,7 +214,8 @@
     },
     {
       "id": "seg_010",
-      "order": 10,
+      "order": 11,
+      "role": "main",
       "type": "illustration",
       "lines": [
         { "id": "seg_010_l1", "speaker": "mara", "text": "It's me. Open up before they hear us.", "voice_effect": "muffled", "on_screen": false },
@@ -229,7 +247,8 @@
     },
     {
       "id": "seg_011",
-      "order": 11,
+      "order": 12,
+      "role": "main",
       "type": "illustration",
       "lines": [
         { "id": "seg_011_l1", "speaker": "narrator", "text": "She told you about Dex, the old radio man who had kept her alive the first night." },
@@ -251,7 +270,8 @@
     },
     {
       "id": "seg_012",
-      "order": 12,
+      "order": 13,
+      "role": "cliffhanger",
       "type": "illustration",
       "lines": [
         { "id": "seg_012_l1", "speaker": "narrator", "text": "Then the radio on the ledge crackled." },
@@ -288,7 +308,8 @@
     },
     {
       "id": "seg_013",
-      "order": 13,
+      "order": 14,
+      "role": "end_card",
       "type": "title_card",
       "narration": "To be continued.",
       "remotion": { "template": "title_card", "props": { "title": "TO BE CONTINUED", "background": "dark" } }

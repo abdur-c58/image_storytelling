@@ -1,4 +1,4 @@
-# Story and episode JSON contract (schema 2.1, for the script writer)
+# Story and episode JSON contract (schema 2.2, for the script writer)
 
 Give this file to Claude (or any writer) together with:
 
@@ -14,9 +14,9 @@ The site validates every field and checks **continuity** against the stored stor
 |---|---|---|
 | `story_bible` | Characters, places, world variables, art style, voice/crop defaults. | Once per story (re-paste to add things). |
 | `episode` | One video: segments with scenes, thumbnail, YouTube metadata. Refers to the story by `story_id`. | Every episode. |
-| `bundle` | `{ "schema_version": "2.1", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
+| `bundle` | `{ "schema_version": "2.2", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
 
-Every document starts with `"schema_version": "2.1"` and its `doc_type`. 2.0 documents are still accepted (they have no dialogue, so every segment is narration). A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
+Every document starts with `"schema_version": "2.2"` and its `doc_type`. 2.0 and 2.1 documents are still accepted (2.0 has no dialogue; neither has segment roles, so the structure check is skipped for them). A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
 
 ## Output rules
 
@@ -44,11 +44,12 @@ Once a story has episodes, a re-pasted bible may only **add** things (nothing re
 
 ### narrator
 
-`{ pov, pov_character_id?, voice? }`
+`{ pov, pov_character_id?, voice?, identification? }`
 
 - `pov`: `second_person` (default, "you"), `first_person` ("I") or `third_person`. The site warns when narration drifts: "I/me" in a second-person story, "you" in a first-person one, or the POV character's own name in the narration.
 - `pov_character_id`: the character the narrator is (for `first_person` / `second_person`). In second person that character is expected in most pictures (warning only).
 - `voice`: `{ voice_id, model, speed, gain_db }`; empty fields fall back to `defaults.voice`.
+- `identification`: the viewer-identification rules for second-person stories (see **Viewer identification**).
 
 ### style_bible (drives every image)
 
@@ -61,9 +62,10 @@ Once a story has episodes, a re-pasted bible may only **add** things (nothing re
 
 ### characters[]
 
-`{ id, name, role, scope?, visual_description, outfit_states[], first_appears_episode, voice?, voice_group?, initial_status? }`
+`{ id, name, aliases?, role, scope?, visual_description, outfit_states[], first_appears_episode, voice?, voice_group?, initial_status? }`
 
 - `role`: `protagonist`, `ally`, `antagonist`, `cameo` or `extra`.
+- `aliases`: other names the character goes by (nicknames, surnames). The narrator-name rule checks them too.
 - `visual_description`: **fixed** traits only (body, face, hair). One sentence.
 - `outfit_states[]`: `{ id, description }`, e.g. `beanie`: "a mustard yellow beanie and a grey scarf". The first is the default. Scenes pick one with `outfit_state_id`.
 - `first_appears_episode`: using a character earlier is an error (unless marked `cameo`).
@@ -122,13 +124,14 @@ schema_version, doc_type, story_id, series, segments[], character_status_changes
 
 ### series
 
-`episode_number`, `episode_title_short` (required), `recap_of_previous`, `cliffhanger`, `next_episode_teaser`, `state_carryover` (free-form notes; the real state is computed from scenes).
+`episode_number`, `episode_title_short` (required), `recap_of_previous`, `cliffhanger`, `next_episode_teaser`, `state_carryover` (free-form notes; the real state is computed from scenes), `is_finale` (default `false`; a finale needs no cliffhanger).
 
 ### segments[]
 
 | Field | Notes |
 |---|---|
 | `id`, `order`, `type` | `type` is `illustration`, `title_card`, `infographic` or `reuse_image`. |
+| `role` | `cold_open`, `recap`, `status_board`, `main` (default), `cliffhanger` or `end_card`. See **Segment roles**. |
 | `narration` | Clean text that is captioned and checked against what Whisper hears. **No tags.** Aim for 8–40 words; over 60 gives a warning. |
 | `tts_text` | The narration with Fish voice tags (see **Voice direction**). With the tags removed it must equal `narration`. Expected on segments of 3+ sentences. |
 | `lines[]` | Instead of `narration`: the segment as narrator and dialogue lines (see **Dialogue**). Use one or the other, never both. |
@@ -157,6 +160,7 @@ You never write timestamps; the worker measures them.
 | `include_channel_cameo` | Puts the channel's recurring cameo in this picture. |
 | `timeframe` | `present` (default), `flashback` or `imagined`. Flashback and imagined scenes may show absent or dead characters, other outfits and old location states, and change nothing in the story state. |
 | `visual_treatment` | `flashback_tint` or `none`. Defaults to `flashback_tint` for flashbacks, `none` otherwise. |
+| `pov_exception_reason` | Why the viewer's character is deliberately not in this present-day picture (?160 chars), e.g. "the door, seen from the stairwell". Leaves the segment out of the on-screen ratio. |
 
 `reuse_image` segments inherit the scene of the segment they reuse.
 
@@ -193,7 +197,7 @@ So the way you break narration into sentences decides the camera rhythm. In dial
 
 ### overrides
 
-`{ voice?, audio?, render?, crop_policy? }`: any subset of fields; everything else comes from the story's `defaults`.
+`{ voice?, audio?, render?, crop_policy?, structure? }`: any subset of fields; everything else comes from the story's `defaults`.
 
 ### character_status_changes[] (who is where)
 
@@ -204,6 +208,62 @@ The story tracks each character's status: `with_protagonist`, `separated`, `miss
 - A change to an absent status (`separated`, `missing`, `captive`, `deceased`) applies **after** `at_segment_id`, so that segment can still show the parting. Any other change (a return) applies **at** that segment.
 - An absent character can't be in `characters_present` or speak on screen in a `present` scene. The exceptions: a line over `radio` or `phone`, a `source: "written"` line (a note or message), or a `flashback` / `imagined` scene.
 - `deceased` is final. Bringing someone back needs `story_override: true` and is still flagged.
+
+---
+
+## Viewer identification
+
+In a second-person story the viewer **is** the POV character, so the pictures must keep showing them and the narrator must never call them by name.
+
+```json
+"narrator": {
+  "pov": "second_person",
+  "pov_character_id": "protagonist",
+  "identification": {
+    "pov_character_id": "protagonist",
+    "min_on_screen_ratio": 0.8,
+    "hard_min_on_screen_ratio": 0.5,
+    "forbid_narrator_name": true,
+    "name_card": { "enabled": true, "episode": 1, "text": "THIS IS YOU", "template": "name_card" }
+  }
+}
+```
+
+- **On screen.** Of the `present`-time `illustration` and `reuse_image` segments, at least `min_on_screen_ratio` (80%) should have the POV character in `characters_present` (warning below it), and at least `hard_min_on_screen_ratio` (50%) must (error below it). A `reuse_image` counts the scene it reuses. Flashbacks, imagined scenes and cards don't count.
+- **Deliberate exceptions.** A shot that must leave them out (the door from the other side, a close-up of the radio) gets `scene.pov_exception_reason`. It is not counted, but it is listed in the editor. Don't use it to dodge the rule; if the character is in the picture, remove the reason.
+- **Never name them.** The narrator must not say the POV character's `name` or any of its `aliases` (whole words, any case, including "Wick's"). It's an error unless `forbid_narrator_name` is `false`. Other characters may use the name in their lines; that's how the viewer learns it.
+- **Stay in person.** No "I/me/my" from the narrator in a second-person story (and no "you" in a first-person one).
+
+### How to open episode 1
+
+1. **Cold open** (`role: "cold_open"`): the first segment. A hook: the "DAY 1" card, or one striking picture of "you" in the middle of something.
+2. A few `main` segments that show "you" doing things, in frame, in the second person.
+3. **Status board** (`role: "status_board"`): an `infographic` (usually `supplies_card`) within the first 5 segments, saying what "you" have.
+4. **Name card**: once, early in the episode named in `name_card.episode`, a silent `title_card` with `remotion.template: "name_card"`. It tells the viewer which drawn character they are. One per episode at most (more is an error).
+
+```json
+{ "id": "seg_name_card", "order": 6, "role": "main", "type": "title_card", "narration": "", "silent": true,
+  "remotion": { "template": "name_card", "props": { "text": "THIS IS YOU", "character_id": "protagonist" } } }
+```
+
+---
+
+## Segment roles
+
+Every segment has a `role` (default `main`). Required order:
+
+| Role | Where | Rule (warnings) |
+|---|---|---|
+| `cold_open` | Episode 1, segment 1 | Episode 1 starts with it. |
+| `recap` | Episodes 2+, within the first 3 segments | Not in episode 1. All recap segments together ? 15 s (about 30 words). Keeps the narrator's point of view. |
+| `status_board` | Within the first 5 segments | Exactly one per episode, and it is an `infographic`. |
+| `main` | Everything else | |
+| `cliffhanger` | Within the last 3 segments | At least one, unless `series.is_finale` is `true`. |
+| `end_card` | The last segment | Only the last segment. |
+
+The limits are in `story_bible.defaults.structure` (`enabled`, `cold_open_first`, `recap_within_first`, `recap_max_sec`, `status_board_within_first`, `cliffhanger_within_last`, `end_card_last`) and can be changed per episode in `overrides.structure`. The editor's **Structure check** panel shows which roles are present and which rules pass.
+
+Typical episode 2+: `recap` ? `status_board` ? `main` ? ? `cliffhanger` ? `end_card`.
 
 ---
 
@@ -271,11 +331,14 @@ Rules:
 
 ### remotion (cards)
 
-`template`: `title_card`, `supplies_card`, `pictogram_chart`, `statement_card`, `lower_third`, `custom`.
+`template`: `title_card`, `supplies_card`, `pictogram_chart`, `statement_card`, `lower_third`, `name_card`, `custom`.
+
+`name_card` introduces the viewer's character: large centred `props.text` on a dark background, with the character's approved reference picture as a small round icon. `props.character_id` defaults to the POV character and `props.text` to `identification.name_card.text`. Make it a `silent` `title_card`; it holds for 2 s unless `min_duration_sec` says otherwise.
 
 | Prop | Notes |
 |---|---|
 | `title`, `subtitle`, `body`, `footer` | Short text. Titles auto-shrink; keep them under ~24 characters. |
+| `text`, `character_id` | `name_card` only. |
 | `background` | `dark`, `cream` or `image` (with `background_image_segment_id`, or the segment's own `image.prompt`). |
 | `accent` | `red` (default), `blue` or `none`. |
 | `items[]` | For `supplies_card` and `pictogram_chart`: `{ label, value, icon, icon_count, icon_total }`, `icon_count ≤ icon_total`. Items at 25% or less are drawn red. |
@@ -326,6 +389,8 @@ Only commercially licensed clips are used (the channel is monetised): CC0, publi
 
 `[{ "segment_id": "seg_005", "title": "Day 2" }]`. At least 3, the first at 0:00, each at least 10 s. Problems are fixed where possible or chapters are left out with a warning.
 
+Leave `chapters` empty to get chapters from the segment roles instead: Cold open, Previously, Status, the episode's short title, Cliffhanger, Next time. Runs shorter than 10 s merge into the previous chapter.
+
 ### automation and render
 
 - `automation.auto_start_on_submit` (default `true`), `approval_gates.before_render` / `before_publish`.
@@ -335,10 +400,13 @@ Only commercially licensed clips are used (the channel is monetised): CC0, publi
 
 ## Writing checklist
 
-- [ ] `schema_version: "2.1"` and the right `doc_type`; the episode's `story_id` matches the story.
+- [ ] `schema_version: "2.2"` and the right `doc_type`; the episode's `story_id` matches the story.
 - [ ] Channel characters from earlier stories are `{ "ref": id }`, not redefined.
 - [ ] Every speaker has a `voice`; speakers don't share a `voice_id` unless they share a `voice_group`.
-- [ ] Narration matches the `narrator.pov` ("you" in second person, "I" in first person).
+- [ ] Narration matches the `narrator.pov` ("you" in second person, "I" in first person) and never says the POV character's name or aliases.
+- [ ] The POV character is in at least 80% of present-day pictures; deliberate exceptions have `pov_exception_reason`.
+- [ ] Every segment has a `role`: episode 1 opens with `cold_open`, episodes 2+ recap in the first 3, one `status_board` infographic in the first 5, a `cliffhanger` in the last 3, `end_card` last.
+- [ ] Episode 1 (or the configured episode) has exactly one silent `name_card`.
 - [ ] Absent or dead characters only appear in flashbacks, over radio/phone, or in written notes; status changes are in `character_status_changes`.
 - [ ] Every `illustration` has a `scene` and an `image.prompt` (action only); every card has a `remotion` block.
 - [ ] Scene states follow the story: a location's state only changes through a `state_changes` entry.

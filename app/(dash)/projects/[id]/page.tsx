@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -12,6 +13,7 @@ import { isResolvedV2 } from "@/lib/episode/resolve";
 import type { LineTiming } from "@/lib/crop/timeline";
 import { NARRATOR } from "@/lib/episode/constants";
 import type { Episode, Line, Segment } from "@/lib/episode/schema";
+import { episodePovReport as povReport, type PovStatus } from "@/lib/episode/structure";
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
 import type { CropSummary } from "@/lib/pipeline/crop";
@@ -43,6 +45,7 @@ interface SfxCandidate {
 }
 
 export default async function ProjectPage({ params }: PageProps<"/projects/[id]">) {
+  await connection();
   const { id } = await params;
   const db = await getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
@@ -90,6 +93,8 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
   const segById = new Map(ep.segments.map((s) => [s.id, s]));
   const speakerNames: Record<string, string> = { [NARRATOR]: "Narrator" };
   if (v2) for (const c of ep.story.characters) speakerNames[c.id] = c.name;
+  const pov = v2 ? povReport(ep) : null;
+  const povStatus = new Map((pov?.segments ?? []).filter((s) => s.status !== "ineligible").map((s) => [s.segment_id, s]));
   const warnings = project.warnings as ValidationIssue[];
   const activeTasks = taskRows.filter((t) => t.status === "queued" || t.status === "leased");
   const deadTasks = taskRows.filter((t) => t.status === "dead");
@@ -263,7 +268,14 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       </section>
 
       <section className="card overflow-x-auto">
-        <h2 className="eyebrow mb-3">Segments</h2>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="eyebrow">Segments</h2>
+          {pov && pov.ratio !== null && (
+            <span className={`text-xs ${pov.enforced && pov.ratio < pov.min ? "text-warn" : "text-muted"}`}>
+              Viewer ({pov.pov_character_id}) on screen in {pov.on_screen}/{pov.eligible} present-day pictures ({Math.round(pov.ratio * 100)}%)
+            </span>
+          )}
+        </div>
         <table className="w-full text-xs">
           <thead className="text-left text-muted">
             <tr>
@@ -301,6 +313,17 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                   <td className="pr-2">
                     <div className="font-mono">{row.segmentId}</div>
                     <div className="text-muted">{row.type}</div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {seg?.role && seg.role !== "main" && <span className="chip text-info">{seg.role.replace(/_/g, " ")}</span>}
+                      {povStatus.get(row.segmentId) && (
+                        <span
+                          className={`chip ${povStatus.get(row.segmentId)!.status === "missing" ? "text-warn" : "text-muted"}`}
+                          title={povStatus.get(row.segmentId)!.reason ?? `${pov!.pov_character_id} ${POV_CHIP[povStatus.get(row.segmentId)!.status]}`}
+                        >
+                          POV {POV_CHIP[povStatus.get(row.segmentId)!.status]}
+                        </span>
+                      )}
+                    </div>
                     {row.imageAttempts > 0 && <div className="text-warn">image retries: {row.imageAttempts}</div>}
                   </td>
                   <td className="max-w-md pr-2">
@@ -471,6 +494,8 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
 }
 
 const hasPicture = (type: string) => type !== "title_card" && type !== "infographic";
+
+const POV_CHIP: Record<PovStatus, string> = { on_screen: "on screen", missing: "missing", exception: "exception", ineligible: "" };
 
 /** Worth showing line by line: more than one line, or anyone but the narrator speaking. */
 const isDialogue = (seg: Segment) => !!seg.lines && (seg.lines.length > 1 || seg.lines.some((l) => l.speaker !== NARRATOR));

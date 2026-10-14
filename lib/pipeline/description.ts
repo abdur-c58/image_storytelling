@@ -1,5 +1,6 @@
 import { YOUTUBE_DESCRIPTION_MAX_BYTES } from "@/lib/episode/constants";
 import type { Episode } from "@/lib/episode/schema";
+import { roleChapters } from "@/lib/episode/structure";
 import { chapterProblem, chaptersText, utf8ByteLength, type ChapterInput } from "@/lib/episode/youtube";
 
 export interface SfxCredit {
@@ -22,7 +23,9 @@ export interface FinalDescription {
   error: string | null;
 }
 
-export function buildChapters(ep: Episode, segmentStarts: Record<string, number>): ChapterInput[] {
+/** Explicit `chapters` win; without them, chapters come from runs of segment roles (cold open, recap, …). */
+export function buildChapters(ep: Episode, segmentStarts: Record<string, number>, durationSec = Infinity): ChapterInput[] {
+  if (!ep.chapters.length) return roleChapters(ep.segments, segmentStarts, durationSec, ep.series.episode_title_short);
   const chapters = ep.chapters
     .map((c) => ({ title: c.title.trim(), start_seconds: segmentStarts[c.segment_id] ?? Number.NaN }))
     .filter((c) => Number.isFinite(c.start_seconds))
@@ -72,7 +75,7 @@ export function finalizeDescription(
   durationSec: number,
   credits: SfxCredit[],
 ): FinalDescription {
-  const chapters = ep.youtube.chapters_from_segments ? buildChapters(ep, segmentStarts) : [];
+  const chapters = ep.youtube.chapters_from_segments ? buildChapters(ep, segmentStarts, durationSec) : [];
   const problem = chapters.length ? chapterProblem(chapters, durationSec) : null;
   const usableChapters = problem ? [] : chapters;
   const chText = chaptersText(usableChapters);

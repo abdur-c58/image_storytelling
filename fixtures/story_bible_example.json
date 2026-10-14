@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.1",
+  "schema_version": "2.2",
   "doc_type": "story_bible",
   "story_id": "rooftop-test",
   "story_title": "Rooftop Test Story",
@@ -23,7 +23,14 @@
   "narrator": {
     "pov": "second_person",
     "pov_character_id": "protagonist",
-    "voice": null
+    "voice": null,
+    "identification": {
+      "pov_character_id": "protagonist",
+      "min_on_screen_ratio": 0.8,
+      "hard_min_on_screen_ratio": 0.5,
+      "forbid_narrator_name": true,
+      "name_card": { "enabled": true, "episode": 1, "text": "THIS IS YOU", "template": "name_card" }
+    }
   },
   "characters": [
     {

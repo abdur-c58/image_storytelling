@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { getDb } from "@/lib/db";
@@ -6,6 +7,7 @@ import { ago, PageHeader, StateBadge } from "../ui";
 import { DropImport } from "./drop-import";
 
 export default async function ProjectsPage({ searchParams }: PageProps<"/projects">) {
+  await connection();
   const showArchived = (await searchParams).archived === "1";
   const db = await getDb();
   const [rows, active] = await Promise.all([

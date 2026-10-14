@@ -199,3 +199,69 @@ Episodes change a status with `character_status_changes: [{ character_id, to_sta
 4. **Second-person visual rule.** As written, the brief warns when the POV character is **not** in `characters_present`. That fits a style where "you" are drawn in frame (as in the fixtures), so I implemented it as written. It is a warning, never an error.
 5. **Narrator name lint.** A POV character named "You" (as in the example story) would trip on every line, so names that are pronouns (`you`, `your`, `yourself`) are skipped.
 6. **Tag whitelist per model.** Character lines use the episode's `voice.tag_whitelist`, the same as the narrator. The bible has one whitelist and no per-model table yet.
+
+# Schema 2.2: viewer identification and segment roles
+
+`schema_version` "2.2". 2.0 and 2.1 documents are still accepted. Every new field has a default, so older documents parse unchanged. The new structure rules only run on 2.2 episodes, and the identification rules only run when the bible has a `narrator.identification` block.
+
+## 2.2-1. Viewer identification (`story_bible.narrator.identification`)
+
+```json
+"identification": {
+  "pov_character_id": "protagonist",
+  "min_on_screen_ratio": 0.8,
+  "hard_min_on_screen_ratio": 0.5,
+  "forbid_narrator_name": true,
+  "name_card": { "enabled": true, "episode": 1, "text": "THIS IS YOU", "template": "name_card" }
+}
+```
+
+| Field | Default | Rule |
+|---|---|---|
+| `pov_character_id` | `narrator.pov_character_id` | Must be a known character. If both are set they must match (error). |
+| `min_on_screen_ratio` | 0.8 | Below it is a warning. |
+| `hard_min_on_screen_ratio` | 0.5 | Below it is an error. Must not exceed `min_on_screen_ratio`. |
+| `forbid_narrator_name` | true | The narrator saying the POV character's name (or an alias) is an error; with `false`, a warning. |
+| `name_card` | null | In episode `name_card.episode`, exactly one `title_card`/`infographic` with `remotion.template: "name_card"`: none is a warning, more than one is an error. |
+
+- **On-screen ratio.** Counted over `illustration` and `reuse_image` segments whose scene has `timeframe: "present"`. A `reuse_image` without its own scene uses the scene of the segment it reuses (following chains). The ratio is the share of those segments whose `characters_present` includes the POV character. It is shown in the editor ("Viewer on screen", with a per-segment list) and on the project page (header and a chip per segment). With no eligible segments the ratio is empty and nothing is reported.
+- **`scene.pov_exception_reason`** (new, up to 160 characters). It excludes a segment from the ratio, and the segment is still listed as "exception". If the POV character is in that picture anyway, you get a warning to remove the reason.
+- **Narrator-name lint.** Applies to narrator lines only (plain `narration` counts as one narrator line). It matches the name plus `characters[].aliases` (new, default `[]`) as whole words, case-insensitive, and possessives like "Wick's" match. Names that are pronouns ("You") are skipped. Other speakers may say the name.
+- **Without the block** the 2.1 behaviour is kept: a warning per present-day illustration missing the POV character (now skipped when `pov_exception_reason` is set) and a warning when the narrator names them. With the block, the ratio replaces the per-picture warning.
+- **POV drift (2.2 episodes).** A narrator line saying "I/me/my" in a second-person story, or "you/your" in a first-person one, is a warning. This makes the contract's existing advice checkable.
+
+## 2.2-2. Remotion template `name_card`
+
+A still card at 1920×1080 with a dark background by default and `props.text` large in the centre. If an approved character master exists for `props.character_id`, it is shown as a small round icon above the text. `props.character_id` defaults to the POV character, and `props.text` defaults to `identification.name_card.text`; both are filled in when the episode is resolved. The card holds for `min_duration_sec` (default 2.0 s for name cards) and should be `silent: true` (otherwise you get a warning). The "card has no title" warning doesn't apply to it.
+
+- Site: the `cards` task payload gains `portraits: { [segment_id]: { url } }`, taken from the approved `char/<id>/<outfit>` master (default outfit first).
+- Worker: `card_props` passes `text` and `portraitUrl`; `Card.tsx` has a `NameCard` component.
+
+## 2.2-3. Segment roles (`segment.role`)
+
+`cold_open | recap | status_board | main | cliffhanger | end_card`, default `main`. All rules are warnings, prefixed "Structure:".
+
+| Rule | Setting (default) |
+|---|---|
+| Episode 1 opens with `cold_open` | `cold_open_first` (true) |
+| Episode 1 has no `recap` | always, when enabled |
+| Episodes 2+: a `recap` in the first N segments | `recap_within_first` (3; 0 turns it off) |
+| Total recap ≤ N seconds (estimated from words, like the runtime estimate) | `recap_max_sec` (15) |
+| The recap keeps the narrator's point of view | always, when a recap exists |
+| Exactly one `status_board` in the first N, and it is an `infographic` | `status_board_within_first` (5; 0 turns it off) |
+| A `cliffhanger` in the last N unless `series.is_finale` (new, default false) | `cliffhanger_within_last` (3; 0 turns it off) |
+| `end_card` is the last segment (and only the last) | `end_card_last` (true) |
+
+Settings live in `story_bible.defaults.structure` and can be overridden per episode in `overrides.structure`. `enabled: false` turns every role check off.
+
+- **Chapters.** When `youtube.chapters_from_segments` is true and the episode has **no** explicit `chapters`, chapters are built from runs of roles: Cold open, Previously, Status, the episode's short title for main runs ("… (part 2)" for later runs), Cliffhanger, Next time. Runs shorter than 10 s merge into the previous chapter (a short opening run merges into the next one), so YouTube's 10-second rule holds. Explicit `chapters` always win.
+- **UI.** The editor has a "Structure check" panel (which roles are present, each rule with ✓ or !, and the role and estimated length of every segment), plus a new "Structure and identification" group in the issue lists. The project page shows a role chip on each non-main segment.
+
+## 2.2 decisions and ambiguities
+
+1. **Roles only on 2.2 episodes.** 2.0 and 2.1 episodes have no roles, so every segment would be `main` and fail the checks. Structure checks therefore run only when `schema_version` is "2.2".
+2. **Identification is opt-in per story.** The rules apply only when the bible has `narrator.identification`, so existing stories keep their 2.1 warnings.
+3. **Episode-1 cold open vs. status board.** Both are required early (cold open first, status board within the first 5). The full fixture opens with the "DAY 1" title card as the cold open, puts the status board fifth, and places the name card right after it.
+4. **Recap length.** Estimated as words ÷ 2.4 wps plus the segment pause, like the runtime estimate, because real TTS lengths aren't known at validation time.
+5. **Name card count** includes both `title_card` and `infographic` segments with the template. Cards in other episodes are allowed and aren't counted.
+6. **The narrator-name rule is case-insensitive** and treats `'s` as outside the word, so "WICK'S" matches; "Wickham" doesn't.

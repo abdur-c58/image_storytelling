@@ -9,7 +9,8 @@
       "type": "string",
       "enum": [
         "2.0",
-        "2.1"
+        "2.1",
+        "2.2"
       ]
     },
     "doc_type": {
@@ -53,6 +54,10 @@
             "type": "string"
           },
           "additionalProperties": {}
+        },
+        "is_finale": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
@@ -85,6 +90,18 @@
               "title_card",
               "infographic",
               "reuse_image"
+            ]
+          },
+          "role": {
+            "default": "main",
+            "type": "string",
+            "enum": [
+              "cold_open",
+              "recap",
+              "status_board",
+              "main",
+              "cliffhanger",
+              "end_card"
             ]
           },
           "narration": {
@@ -393,6 +410,19 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "pov_exception_reason": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -602,7 +632,8 @@
                       "pictogram_chart",
                       "statement_card",
                       "lower_third",
-                      "custom"
+                      "custom",
+                      "name_card"
                     ]
                   },
                   "props": {
@@ -719,6 +750,27 @@
                           "red",
                           "blue",
                           "none"
+                        ]
+                      },
+                      "text": {
+                        "default": null,
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "character_id": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                          },
+                          {
+                            "type": "null"
+                          }
                         ]
                       }
                     },
@@ -1662,6 +1714,41 @@
             }
           },
           "additionalProperties": {}
+        },
+        "structure": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "cold_open_first": {
+              "type": "boolean"
+            },
+            "recap_within_first": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "recap_max_sec": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 120
+            },
+            "status_board_within_first": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "cliffhanger_within_last": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "end_card_last": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": {}
         }
       },
       "additionalProperties": {}
@@ -1828,6 +1915,14 @@
                   "unknown",
                   "deceased"
                 ]
+              },
+              "aliases": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             },
             "required": [

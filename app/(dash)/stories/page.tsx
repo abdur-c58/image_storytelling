@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { desc, sql } from "drizzle-orm";
 import Link from "next/link";
 import { getDb } from "@/lib/db";
@@ -5,6 +6,7 @@ import { projects, stories, storyMasters } from "@/lib/db/schema";
 import { ago, PageHeader, StateBadge } from "../ui";
 
 export default async function StoriesPage() {
+  await connection();
   const db = await getDb();
   const [rows, episodeCounts, masterCounts] = await Promise.all([
     db.select().from(stories).orderBy(desc(stories.updatedAt)),

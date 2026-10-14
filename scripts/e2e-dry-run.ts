@@ -149,7 +149,7 @@ async function main() {
   if (allFeatures) {
     episode.overrides = { ...episode.overrides, render: { burn_in_captions: true, caption_style: "bottom_bar", outro_sec: 1.5 } };
   }
-  const bundle = { schema_version: "2.1", doc_type: "bundle", story_bible: bible, episode };
+  const bundle = { schema_version: "2.2", doc_type: "bundle", story_bible: bible, episode };
   const res = await fetch(`${base}/api/projects`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },

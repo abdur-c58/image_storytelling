@@ -1,6 +1,18 @@
-export const SCHEMA_VERSION = "2.1";
-/** 2.1 only adds optional fields, so 2.0 documents are still accepted. */
-export const SUPPORTED_SCHEMA_VERSIONS = ["2.0", "2.1"] as const;
+export const SCHEMA_VERSION = "2.2";
+/** 2.1 and 2.2 only add optional fields, so older 2.x documents are still accepted. */
+export const SUPPORTED_SCHEMA_VERSIONS = ["2.0", "2.1", "2.2"] as const;
+/** Segment roles (2.2). Structure rules apply to 2.2 episodes only. */
+export const SEGMENT_ROLES = ["cold_open", "recap", "status_board", "main", "cliffhanger", "end_card"] as const;
+/** Default chapter titles for role-derived chapters ("main" uses the episode's short title). */
+export const ROLE_CHAPTER_TITLES: Record<string, string> = {
+  cold_open: "Cold open",
+  recap: "Previously",
+  status_board: "Status",
+  cliffhanger: "Cliffhanger",
+  end_card: "Next time",
+};
+export const NAME_CARD_TEMPLATE = "name_card";
+export const NAME_CARD_DEFAULT_SECONDS = 2.0;
 export const DOC_TYPES = ["story_bible", "episode", "bundle"] as const;
 
 export const POV_MODES = ["second_person", "first_person", "third_person"] as const;
@@ -68,6 +80,7 @@ export const REMOTION_TEMPLATES = [
   "statement_card",
   "lower_third",
   "custom",
+  "name_card",
 ] as const;
 export const SFX_PLACEMENTS = ["segment_start", "segment_end", "at_phrase", "whole_segment"] as const;
 export const TRANSITIONS = ["cut", "crossfade_150ms", "fade_black"] as const;

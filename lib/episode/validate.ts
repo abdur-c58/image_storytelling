@@ -6,6 +6,7 @@ import {
   MAX_RUNTIME_WARNING_SEC,
   MAX_SEGMENT_WORDS_WARNING,
   MIN_RUNTIME_WARNING_SEC,
+  NAME_CARD_TEMPLATE,
   SCHEMA_VERSION,
   YOUTUBE_DESCRIPTION_MAX_BYTES,
   YOUTUBE_TAGS_MAX_CHARS,
@@ -30,6 +31,7 @@ import {
   BundleSchema,
   EpisodeDocSchema,
   StoryBibleSchema,
+  StructureSchema,
   VoiceSchema,
   type CropPolicy,
   type Episode,
@@ -41,6 +43,7 @@ import { checkAgainstRegistry, expandCast, type CastRegistry } from "./cast";
 import { NARRATOR } from "./constants";
 import { segmentText } from "./lines";
 import { segmentSentences } from "./sentences";
+import { checkIdentificationEpisode, checkStructure, type IdentificationReport, type StructureReport } from "./structure";
 import { firstMismatch, normalizeTagName, parseTags, tagStats, ttsMatchesNarration } from "./tags";
 import { normalizePhrase, phraseInText } from "./text";
 import { hasForbiddenYoutubeChars, utf8ByteLength, youtubeTagsLength } from "./youtube";
@@ -48,7 +51,7 @@ import { hasForbiddenYoutubeChars, utf8ByteLength, youtubeTagsLength } from "./y
 export type { IssuePath } from "./continuity";
 export type DocType = "story_bible" | "episode" | "bundle";
 
-export type IssueCategory = "continuity" | "voice" | "crop" | "general";
+export type IssueCategory = "continuity" | "voice" | "crop" | "structure" | "general";
 
 export interface ValidationIssue {
   level: "error" | "warning";
@@ -67,6 +70,12 @@ const CONTINUITY_KEYS = new Set(["scene", "bible_additions", "character_status_c
 export function issueCategory(path: IssuePath, message: string): IssueCategory {
   const keys = path.filter((p): p is string => typeof p === "string");
   if (keys.some((k) => k === "crop_policy" || k === "crop_override" || k === "focal_points")) return "crop";
+  if (
+    keys.some((k) => k === "role" || k === "identification" || k === "pov_exception_reason" || k === "structure") ||
+    /^Structure:|^Viewer identification|name card|names the viewer/.test(message)
+  ) {
+    return "structure";
+  }
   if (keys.some((k) => VOICE_KEYS.has(k)) || /\bvoice\b|tag/i.test(message)) {
     if (!/is "(separated|missing|captive|deceased)"/.test(message)) return "voice";
   }
@@ -101,6 +110,10 @@ export interface ValidationResult {
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
   estimate: EpisodeEstimate | null;
+  /** How often the viewer's character is on screen (second-person stories, when the story is known). */
+  identification: IdentificationReport | null;
+  /** Segment roles in order and the structure checks. */
+  structure: StructureReport | null;
 }
 
 type Locator = (path: IssuePath) => { line: number; column: number } | null;
@@ -396,7 +409,7 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
       if (needsItems && props.items.length === 0) {
         issues.error(at("remotion", "props", "items"), `${label}: ${seg.remotion.template} needs at least one item.`);
       }
-      if (!props.title && seg.remotion.template !== "custom") {
+      if (!props.title && seg.remotion.template !== "custom" && seg.remotion.template !== NAME_CARD_TEMPLATE) {
         issues.warn(at("remotion", "props", "title"), `${label}: card has no title.`);
       }
     }
@@ -512,11 +525,12 @@ function checkEpisodeWithStory(
   issues: IssueCollector,
   now: Date,
   prefix: IssuePath,
-): { episode: Episode | null; continuity: ValidationResult["continuity"] } {
+): EpisodeCheck {
   const P = (...p: IssuePath) => [...prefix, ...p];
+  const none: EpisodeCheck = { episode: null, continuity: null, identification: null, structure: null };
   if (doc.story_id !== ctx.bible.story_id) {
     issues.error(P("story_id"), `This episode belongs to story "${doc.story_id}", not "${ctx.bible.story_id}".`);
-    return { episode: null, continuity: null };
+    return none;
   }
   checkBibleAdditions(ctx.bible, doc.bible_additions, issues, prefix);
   doc.bible_additions.characters.forEach((c, ci) => {
@@ -530,7 +544,7 @@ function checkEpisodeWithStory(
     const zerr = e as z.ZodError;
     if (Array.isArray(zerr.issues)) zodIssues(zerr, issues, doc, P("overrides"));
     else issues.error(P("overrides"), `Overrides could not be applied: ${(e as Error).message}`);
-    return { episode: null, continuity: null };
+    return none;
   }
   checkEpisodeDoc(doc, episode.voice, issues, now, prefix);
   checkCropPolicy(episode.crop_policy, issues, P("overrides", "crop_policy"));
@@ -545,6 +559,8 @@ function checkEpisodeWithStory(
 
   const start = startSnapshotFor(ctx.state, effective, doc.series.episode_number);
   const continuity = checkContinuity(effective, doc, start, issues, prefix);
+  const identification = checkIdentificationEpisode(effective, doc, issues, prefix);
+  const structure = checkStructure(doc, episode.structure, effective.narrator.pov, episode.voice.pause_between_segments_ms, issues, prefix);
   episode.story.start_state = { locations: start.locations, world: start.world, outfits: start.outfits };
 
   if (ctx.approvedMasters && ctx.mastersGate !== false) {
@@ -560,8 +576,10 @@ function checkEpisodeWithStory(
       );
     }
   }
-  return { episode, continuity: { ...continuity, start } };
+  return { episode, continuity: { ...continuity, start }, identification, structure };
 }
+
+type EpisodeCheck = Pick<ValidationResult, "episode" | "continuity" | "identification" | "structure">;
 
 function runtimeWarnings(estimate: EpisodeEstimate, issues: IssueCollector, prefix: IssuePath) {
   if (estimate.total_seconds < MIN_RUNTIME_WARNING_SEC) {
@@ -598,6 +616,8 @@ function empty(doc_type: DocType | null, issues: IssueCollector): ValidationResu
     errors: issues.errors,
     warnings: issues.warnings,
     estimate: null,
+    identification: null,
+    structure: null,
   };
 }
 
@@ -651,17 +671,17 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
     const ctx: StoryContext = options.story?.bible.story_id === story_bible.story_id
       ? { ...options.story, bible: story_bible, registry: options.registry }
       : { bible: story_bible, state: null, registry: options.registry };
-    const { episode, continuity } = checkEpisodeWithStory(doc, ctx, issues, now, ["episode"]);
-    const estimate = episode ? estimateEpisode(episode) : null;
+    const checked = checkEpisodeWithStory(doc, ctx, issues, now, ["episode"]);
+    const estimate = checked.episode ? estimateEpisode(checked.episode) : null;
     if (estimate) runtimeWarnings(estimate, issues, ["episode"]);
     const ok = issues.errors.length === 0;
     return {
       ...empty(doc_type, issues),
+      ...checked,
       ok,
       story: story_bible,
       episode_doc: doc,
-      episode: ok ? episode : null,
-      continuity,
+      episode: ok ? checked.episode : null,
       estimate,
     };
   }
@@ -677,19 +697,21 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
     checkEpisodeDoc(doc, voice, issues, now, []);
     const estimate = estimateEpisode({ ...doc, voice, render: { intro_sec: 0, outro_sec: 0 } });
     runtimeWarnings(estimate, issues, []);
+    const structure = checkStructure(doc, StructureSchema.parse({ ...(doc.overrides.structure ?? {}) }), "third_person", voice.pause_between_segments_ms, issues, []);
     return {
       ...empty(doc_type, issues),
       ok: false,
       episode_doc: doc,
       needs_story: doc.story_id,
       estimate,
+      structure,
     };
   }
-  const { episode, continuity } = checkEpisodeWithStory(doc, { ...options.story, registry: options.story.registry ?? options.registry }, issues, now, []);
-  const estimate = episode ? estimateEpisode(episode) : null;
+  const checked = checkEpisodeWithStory(doc, { ...options.story, registry: options.story.registry ?? options.registry }, issues, now, []);
+  const estimate = checked.episode ? estimateEpisode(checked.episode) : null;
   if (estimate) runtimeWarnings(estimate, issues, []);
   const ok = issues.errors.length === 0;
-  return { ...empty(doc_type, issues), ok, episode_doc: doc, episode: ok ? episode : null, continuity, estimate };
+  return { ...empty(doc_type, issues), ...checked, ok, episode_doc: doc, episode: ok ? checked.episode : null, estimate };
 }
 
 export function parseJsonText(text: string): { raw: unknown; errors: ValidationIssue[] } {

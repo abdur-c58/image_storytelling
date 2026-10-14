@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { and, asc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -8,6 +9,7 @@ import { CopyButton } from "../../projects/[id]/client";
 import { PageHeader, StateBadge } from "../../ui";
 
 export default async function SeriesPage({ params }: PageProps<"/series/[id]">) {
+  await connection();
   const { id } = await params;
   const seriesId = decodeURIComponent(id);
   const db = await getDb();

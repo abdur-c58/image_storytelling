@@ -39,7 +39,7 @@ describe("fixtures", () => {
     const r = validateText(fixture("episode_full.json"), { now: NOW, story: ctx() });
     expect(r.errors).toEqual([]);
     const ep = r.episode!;
-    expect(ep.segments).toHaveLength(13);
+    expect(ep.segments).toHaveLength(14);
     expect(ep.crop_policy.min_hold_sec).toBe(1.2);
     expect(ep.voice.style_notes).toBe("calm, low, unhurried");
     expect(ep.story.scene_bible.locations.find((l) => l.id === "rooftop")!.camera_angles.map((a) => a.id)).toEqual(["a", "b", "c"]);
@@ -131,26 +131,26 @@ describe("doc types and schema errors", () => {
 describe("continuity", () => {
   it("rejects a scene state that does not match the story state", () => {
     const ep = json("episode_full.json");
-    ep.segments[5].scene.state_changes = [];
+    ep.segments[6].scene.state_changes = [];
     const r = validateEp(ep);
-    expect(errorText(r)).toMatch(/segments\[5\]\.scene\.state_id: seg_006: apartment is "tidy" here, but the scene says "ransacked"/);
+    expect(errorText(r)).toMatch(/segments\[6\]\.scene\.state_id: seg_006: apartment is "tidy" here, but the scene says "ransacked"/);
   });
 
   it("rejects a state_change whose from_state is wrong", () => {
     const ep = json("episode_full.json");
-    ep.segments[7].scene.state_changes[0].from_state_id = "barricaded";
+    ep.segments[8].scene.state_changes[0].from_state_id = "barricaded";
     expect(errorText(validateEp(ep))).toMatch(/state_changes\[0\]\.from_state_id: seg_008: rooftop is "clear" at this point/);
   });
 
   it("non-persistent changes revert after the segment", () => {
     const ep = json("episode_full.json");
-    ep.segments[7].scene.state_changes[0].persist = false;
+    ep.segments[8].scene.state_changes[0].persist = false;
     expect(errorText(validateEp(ep))).toMatch(/seg_009: rooftop is "clear" here/);
   });
 
   it("requires persist on every state change", () => {
     const ep = json("episode_full.json");
-    delete ep.segments[7].scene.state_changes[0].persist;
+    delete ep.segments[8].scene.state_changes[0].persist;
     expect(errorText(validateEp(ep))).toMatch(/"persist" is required/);
   });
 
@@ -158,7 +158,7 @@ describe("continuity", () => {
     const ep = json("episode_full.json");
     delete ep.segments[2].scene.world_state.weather;
     ep.segments[3].scene.world_state.day = 3;
-    ep.segments[5].scene.world_state.day = 2;
+    ep.segments[6].scene.world_state.day = 2;
     const r = validateEp(ep);
     expect(errorText(r)).toMatch(/seg_003: missing world variable "weather"/);
     const warnings = r.warnings.map((w) => w.message).join("\n");
@@ -179,7 +179,7 @@ describe("continuity", () => {
     const b = bible();
     b.characters.find((c) => c.id === "mara")!.first_appears_episode = 2;
     const ep = json("episode_full.json");
-    ep.segments = ep.segments.slice(0, 9).concat({ ...ep.segments.at(-1), order: 10 });
+    ep.segments = ep.segments.slice(0, 10).concat({ ...ep.segments.at(-1), order: 11 });
     ep.character_status_changes = [];
     ep.chapters = ep.chapters.slice(0, 3);
     ep.thumbnail.characters_present = ["protagonist"];
@@ -259,10 +259,10 @@ describe("voice tags", () => {
   it("validates tts_text against narration, whitelist and density", () => {
     const ep = json("episode_full.json");
     ep.segments[2].tts_text = "[breath] From up here, the roads looked like a model town. [long pause] Nothing moved at all.";
-    ep.segments[5].tts_text = ep.segments[5].tts_text.replace("[sigh]", "[gasp]");
-    ep.segments[7].tts_text = "<shout>That afternoon, the rain came.</shout> You dragged a filing cabinet up the stairs. You wedged the door shut.";
+    ep.segments[6].tts_text = ep.segments[6].tts_text.replace("[sigh]", "[gasp]");
+    ep.segments[8].tts_text = "<shout>That afternoon, the rain came.</shout> You dragged a filing cabinet up the stairs. You wedged the door shut.";
     ep.segments[1].narration = "The morning the city went quiet, [pause] you climbed to the roof.";
-    ep.segments[8].tts_text = "[pause] [breath] [pause] [sigh] [pause] Then, through the rain, you heard it. [pause] Three slow knocks on the door.";
+    ep.segments[9].tts_text = "[pause] [breath] [pause] [sigh] [pause] Then, through the rain, you heard it. [pause] Three slow knocks on the door.";
     const r = validateEp(ep);
     const t = errorText(r);
     expect(t).toMatch(/seg_003: tts_text without tags must match narration word for word \(tts_text has "roads looked like a", narration has "streets looked like a"\)/);
@@ -277,7 +277,7 @@ describe("voice tags", () => {
     const b = bible();
     b.defaults.voice.unknown_tag_level = "error";
     const ep = json("episode_full.json");
-    ep.segments[5].tts_text = ep.segments[5].tts_text.replace("[sigh]", "[gasp]");
+    ep.segments[6].tts_text = ep.segments[6].tts_text.replace("[sigh]", "[gasp]");
     expect(validateEp(ep, { bible: b, state: null }).errors.some((e) => /\[gasp\]/.test(e.message))).toBe(true);
   });
 

@@ -64,6 +64,8 @@ export async function validateDocumentAction(text: string): Promise<ValidationRe
       errors: [{ level: "error", category: "general", path: [], path_text: "(root)", message: "Document is larger than 1 MB.", line: null, column: null }],
       warnings: [],
       estimate: null,
+      identification: null,
+      structure: null,
     };
   }
   return validateWithStore(await getDb(), text);

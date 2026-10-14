@@ -123,9 +123,15 @@ describe("lines and speakers", () => {
   });
 });
 
-describe("POV", () => {
-  it("warns when a second-person narrator names the POV character", () => {
+describe("POV (without a 2.2 identification block)", () => {
+  const plainBible = () => {
     const b = bible();
+    b.narrator.identification = null;
+    return b;
+  };
+
+  it("warns when a second-person narrator names the POV character", () => {
+    const b = plainBible();
     b.characters[0].name = "Sam";
     const ep = json("episode_full.json");
     seg(ep, "seg_002").narration = "The morning the city went quiet, Sam climbed to the roof.";
@@ -133,13 +139,13 @@ describe("POV", () => {
   });
 
   it("does not treat a pronoun name like \"You\" as a name", () => {
-    expect(warnings(validateEp(json("episode_full.json")))).not.toMatch(/shouldn't name the POV character/);
+    expect(warnings(validateEp(json("episode_full.json"), plainBible()))).not.toMatch(/shouldn't name the POV character/);
   });
 
   it("warns when the POV character is missing from a present-day picture, but not from a flashback", () => {
     const ep = json("episode_full.json");
     seg(ep, "seg_003").scene.characters_present = [];
-    const w = warnings(validateEp(ep));
+    const w = warnings(validateEp(ep, plainBible()));
     expect(w).toMatch(/seg_003: second-person story, but the POV character \(protagonist\) isn't in this present-day picture/);
     expect(w).not.toMatch(/seg_011: second-person story/);
   });

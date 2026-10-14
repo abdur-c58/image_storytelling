@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { assetRef, readyAssetMap, signedDownloadLink, type AssetRef } from "@/lib/assets";
 import type { Db } from "@/lib/db";
 import { assets, projects, segments, sfxCues, storyMasters, type TaskRow } from "@/lib/db/schema";
-import { NARRATOR, YOUTUBE_CATEGORIES } from "@/lib/episode/constants";
+import { NAME_CARD_TEMPLATE, NARRATOR, YOUTUBE_CATEGORIES } from "@/lib/episode/constants";
 import type { ImageItem } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "./requirements";
@@ -168,7 +168,16 @@ export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promi
     }
     case "cards": {
       const bgKeys = Object.fromEntries(Object.entries(req.cardBackgrounds).map(([card, src]) => [card, assetKeys.image(src)]));
-      return { ...base, payload: { ...payload, episode: ep, backgrounds: await refs(ready, bgKeys, baseUrl) } };
+      const nameCards = ep.segments.filter((s) => s.remotion?.template === NAME_CARD_TEMPLATE && s.remotion.props.character_id);
+      const masters = nameCards.length ? await approvedMasterLinks(db, project.storyId, baseUrl) : new Map<string, { url: string; label: string }>();
+      const portraits: Record<string, { url: string }> = {};
+      for (const s of nameCards) {
+        const cid = s.remotion!.props.character_id!;
+        const outfit = ep.story?.characters.find((c) => c.id === cid)?.outfit_states[0]?.id;
+        const key = (outfit && masters.has(`char/${cid}/${outfit}`) ? `char/${cid}/${outfit}` : null) ?? [...masters.keys()].find((k) => k.startsWith(`char/${cid}/`));
+        if (key) portraits[s.id] = { url: masters.get(key)!.url };
+      }
+      return { ...base, payload: { ...payload, episode: ep, backgrounds: await refs(ready, bgKeys, baseUrl), portraits } };
     }
     case "thumbnail_compose": {
       const keys = Object.fromEntries(req.thumbnailVariants.map((v) => [String(v), assetKeys.thumbnailBase(v)]));

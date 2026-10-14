@@ -9,7 +9,8 @@
       "type": "string",
       "enum": [
         "2.0",
-        "2.1"
+        "2.1",
+        "2.2"
       ]
     },
     "doc_type": {
@@ -183,6 +184,83 @@
               "minLength": 1,
               "maxLength": 64,
               "pattern": "^[a-z0-9][a-z0-9_-]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "identification": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "pov_character_id": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "min_on_screen_ratio": {
+                  "default": 0.8,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "hard_min_on_screen_ratio": {
+                  "default": 0.5,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "forbid_narrator_name": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "name_card": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "default": true,
+                          "type": "boolean"
+                        },
+                        "episode": {
+                          "default": 1,
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "text": {
+                          "default": "",
+                          "type": "string"
+                        },
+                        "template": {
+                          "default": "name_card",
+                          "type": "string",
+                          "const": "name_card"
+                        }
+                      },
+                      "additionalProperties": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": {}
             },
             {
               "type": "null"
@@ -458,6 +536,14 @@
                   "unknown",
                   "deceased"
                 ]
+              },
+              "aliases": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             },
             "required": [
@@ -1152,6 +1238,49 @@
                   "type": "null"
                 }
               ]
+            }
+          },
+          "additionalProperties": {}
+        },
+        "structure": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "cold_open_first": {
+              "default": true,
+              "type": "boolean"
+            },
+            "recap_within_first": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "recap_max_sec": {
+              "default": 15,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 120
+            },
+            "status_board_within_first": {
+              "default": 5,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "cliffhanger_within_last": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "end_card_last": {
+              "default": true,
+              "type": "boolean"
             }
           },
           "additionalProperties": {}

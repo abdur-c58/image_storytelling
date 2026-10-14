@@ -1,6 +1,7 @@
 import { ABSENT_STATUSES, NARRATOR, PRONOUN_NAMES, REMOTE_VOICE_EFFECTS } from "./constants";
 import { segmentLines } from "./lines";
 import type { BibleAdditions, EpisodeDoc, Location, StoryBible, WorldVariable } from "./schema";
+import { checkIdentificationBible, identificationOf, povDrift, povNameMatcher } from "./structure";
 
 export type IssuePath = (string | number)[];
 export interface IssueSink {
@@ -142,9 +143,10 @@ export function checkStoryBible(bible: StoryBible, issues: IssueSink, prefix: Is
   if (charIds.has(NARRATOR)) issues.error(at("characters"), `"${NARRATOR}" is reserved for the narrator; rename that character.`);
   const pov = bible.narrator.pov_character_id;
   if (pov && !charIds.has(pov)) issues.error(at("narrator", "pov_character_id"), `Unknown character "${pov}".`);
-  if (bible.narrator.pov !== "third_person" && !pov) {
+  if (bible.narrator.pov !== "third_person" && !pov && !bible.narrator.identification?.pov_character_id) {
     issues.warn(at("narrator", "pov_character_id"), `A ${bible.narrator.pov.replace("_", "-")} story should name its POV character (pov_character_id).`);
   }
+  checkIdentificationBible(bible, issues, at);
   dupes(bible.character_groups, at("character_groups"), "character group");
   bible.character_groups.forEach((g, gi) => {
     g.character_ids.forEach((cid, ci) => {
@@ -331,11 +333,15 @@ export function checkContinuity(
   const absentHere = (cid: string) => isAbsent(status[cid]?.status ?? "with_protagonist");
 
   // ── POV ───────────────────────────────────────────────────────────
-  const povId = bible.narrator.pov_character_id;
+  const identification = identificationOf(bible);
+  const povId = identification?.pov_character_id ?? bible.narrator.pov_character_id;
   const povChar = povId ? chars.get(povId) : undefined;
   const povName = povChar && !(PRONOUN_NAMES as readonly string[]).includes(povChar.name.trim().toLowerCase()) ? povChar.name.trim() : null;
   const povNameRe = povName ? new RegExp(`\\b${povName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") : null;
   const secondPerson = bible.narrator.pov === "second_person";
+  /** 2.2 identification: name + aliases, and an error unless forbid_narrator_name is false. */
+  const idNames = identification && povId ? povNameMatcher(bible, povId) : null;
+  const driftCheck = doc.schema_version === "2.2";
 
   // ── Lines: speakers, voices, absence ─────────────────────────────
   const checkLines = (seg: EpisodeDoc["segments"][number], i: number, present: boolean, locationId: string | null) => {
@@ -343,9 +349,18 @@ export function checkContinuity(
     segmentLines(seg).forEach((line, li) => {
       const lp = seg.lines?.length ? [...prefix, "segments", i, "lines", li] : [...prefix, "segments", i, "narration"];
       if (line.speaker === NARRATOR) {
-        if (secondPerson && povNameRe?.test(line.text)) {
+        if (identification) {
+          const hit = idNames?.re.exec(line.text)?.[0];
+          if (hit) {
+            const msg = `${seg.id}: the narrator names the viewer's character ("${hit}"); the viewer is ${povId}, so say "you".`;
+            if (identification.forbid_narrator_name) issues.error([...lp], msg);
+            else issues.warn([...lp], msg);
+          }
+        } else if (secondPerson && povNameRe?.test(line.text)) {
           issues.warn([...lp], `${seg.id}: in a second-person story the narrator shouldn't name the POV character ("${povName}"); say "you".`);
         }
+        const drift = driftCheck && seg.role !== "recap" ? povDrift(line.text, bible.narrator.pov) : null;
+        if (drift) issues.warn([...lp], `${seg.id}: the narrator says "${drift}" in a ${bible.narrator.pov.replace("_", "-")} story.`);
         return;
       }
       const c = chars.get(line.speaker);
@@ -511,7 +526,15 @@ export function checkContinuity(
       }
     });
 
-    if (secondPerson && povId && present && seg.type === "illustration" && !scene.characters_present.some((cp) => cp.character_id === povId)) {
+    if (
+      secondPerson &&
+      povId &&
+      !identification &&
+      !scene.pov_exception_reason &&
+      present &&
+      seg.type === "illustration" &&
+      !scene.characters_present.some((cp) => cp.character_id === povId)
+    ) {
       issues.warn(at("scene", "characters_present"), `${label}: second-person story, but the POV character (${povId}) isn't in this present-day picture.`);
     }
     if (seg.type === "illustration") for (const g of groupsIn(bible, scene.characters_present)) groups.add(g);

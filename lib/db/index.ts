@@ -34,7 +34,10 @@ async function createHandle(): Promise<Omit<DbHandle, "ready"> & { migrate: () =
       db,
       driver: "postgres",
       migrate: async () => {
-        if (process.env.AUTO_MIGRATE === "1") await migrate(db as never, { migrationsFolder: MIGRATIONS_DIR });
+        // Never migrate from `next build`: a build must not change the database it happens to point at.
+        if (process.env.AUTO_MIGRATE === "1" && process.env.NEXT_PHASE !== "phase-production-build") {
+          await migrate(db as never, { migrationsFolder: MIGRATIONS_DIR });
+        }
       },
     };
   }

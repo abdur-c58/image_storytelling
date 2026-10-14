@@ -1,4 +1,4 @@
-import { DEFAULT_CARD_SECONDS, WORDS_PER_SECOND } from "./constants";
+import { DEFAULT_CARD_SECONDS, NAME_CARD_DEFAULT_SECONDS, NAME_CARD_TEMPLATE, WORDS_PER_SECOND } from "./constants";
 import { segmentLines, segmentText } from "./lines";
 import type { Episode, Segment } from "./schema";
 
@@ -16,7 +16,8 @@ export function estimateSegmentSeconds(segment: Segment, pauseMs: number): numbe
   const words = countWords(spokenText(segment));
   const speech = words / WORDS_PER_SECOND;
   const isCard = segment.type === "title_card" || segment.type === "infographic";
-  const minimum = segment.min_duration_sec ?? (isCard || segment.silent ? DEFAULT_CARD_SECONDS : 0);
+  const cardHold = segment.remotion?.template === NAME_CARD_TEMPLATE ? NAME_CARD_DEFAULT_SECONDS : DEFAULT_CARD_SECONDS;
+  const minimum = segment.min_duration_sec ?? (isCard || segment.silent ? cardHold : 0);
   return Math.max(speech + (words > 0 ? pauseMs / 1000 : 0), minimum);
 }
 

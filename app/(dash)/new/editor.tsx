@@ -4,6 +4,8 @@ import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState,
 import { createProjectAction, validateDocumentAction, type CreateState } from "@/app/actions";
 import { convertV1ToV2 } from "@/lib/episode/migrate";
 import { detectDocType, parseJsonText, validateText, type ValidationIssue, type ValidationResult } from "@/lib/episode/validate";
+import type { SegmentRole } from "@/lib/episode/schema";
+import type { IdentificationReport, PovSegment, StructureReport } from "@/lib/episode/structure";
 import { DRAFT_KEY } from "../projects/drop-import";
 
 function fmtMinutes(sec: number): string {
@@ -214,6 +216,8 @@ export function EpisodeEditor({
             </dl>
           </div>
         )}
+        {result?.structure && result.structure.roles.length > 0 && <StructurePanel report={result.structure} />}
+        {result?.identification && <IdentificationPanel report={result.identification} />}
         {result && result.errors.length > 0 && <IssueList title="Errors" tone="text-bad" issues={result.errors} onJump={jump} />}
         {result && result.warnings.length > 0 && <IssueList title="Warnings" tone="text-warn" issues={result.warnings} onJump={jump} />}
       </aside>
@@ -263,10 +267,97 @@ function IssueList({
   );
 }
 
-const CATEGORY_ORDER = ["general", "continuity", "voice", "crop"] as const;
+const CATEGORY_ORDER = ["general", "structure", "continuity", "voice", "crop"] as const;
 const CATEGORY_LABEL: Record<(typeof CATEGORY_ORDER)[number], string> = {
   general: "Document",
+  structure: "Structure and identification",
   continuity: "Continuity",
   voice: "Voice and dialogue",
   crop: "Crops",
 };
+
+const ROLE_LABEL: Record<string, string> = {
+  cold_open: "Cold open",
+  recap: "Recap",
+  status_board: "Status board",
+  main: "Main",
+  cliffhanger: "Cliffhanger",
+  end_card: "End card",
+};
+
+function StructurePanel({ report }: { report: StructureReport }) {
+  const present = new Set(report.roles.map((r) => r.role));
+  return (
+    <div className="card flex flex-col gap-2 text-xs">
+      <span className="eyebrow">Structure check</span>
+      <div className="flex flex-wrap gap-1.5">
+        {Object.entries(ROLE_LABEL)
+          .filter(([role]) => role !== "main")
+          .map(([role, label]) => (
+            <span key={role} className={`chip ${present.has(role as SegmentRole) ? "" : "opacity-40"}`}>
+              {label} {report.roles.filter((r) => r.role === role).length || ""}
+            </span>
+          ))}
+      </div>
+      {report.applies ? (
+        <ul className="flex flex-col gap-1">
+          {report.checks.map((c) => (
+            <li key={c.id} className="flex gap-2">
+              <span className={c.ok ? "text-ok" : "text-warn"}>{c.ok ? "✓" : "!"}</span>
+              <span className={c.ok ? "font-light text-muted" : ""}>
+                <span className="font-medium text-foreground">{c.label}.</span> {c.ok ? c.detail : c.detail.charAt(0).toUpperCase() + c.detail.slice(1)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="font-light text-muted">Role checks apply to schema 2.2 episodes with structure enabled.</p>
+      )}
+      <ol className="flex flex-col gap-0.5 font-mono text-[0.7rem]">
+        {report.roles.map((r) => (
+          <li key={r.segment_id} className="flex justify-between gap-2">
+            <span>
+              {r.order}. {r.segment_id}
+            </span>
+            <span className={r.role === "main" ? "text-muted" : ""}>
+              {r.role} · {Math.round(r.seconds)}s
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+const POV_STATUS_LABEL: Record<PovSegment["status"], string> = {
+  on_screen: "on screen",
+  missing: "missing",
+  exception: "exception",
+  ineligible: "not counted",
+};
+
+function IdentificationPanel({ report }: { report: IdentificationReport }) {
+  const pct = report.ratio === null ? null : Math.round(report.ratio * 100);
+  const tone = report.ratio === null || !report.enforced ? "" : report.ratio < report.hard_min ? "text-bad" : report.ratio < report.min ? "text-warn" : "text-ok";
+  const rows = report.segments.filter((s) => s.status !== "ineligible");
+  return (
+    <div className="card flex flex-col gap-2 text-xs">
+      <span className="eyebrow">Viewer on screen</span>
+      <p className={`text-lg font-semibold tabular-nums ${tone}`}>
+        {pct === null ? "No present-day pictures" : `${pct}% (${report.on_screen}/${report.eligible})`}
+      </p>
+      <p className="font-light text-muted">
+        <span className="font-mono">{report.pov_character_id}</span> in present-day pictures
+        {report.enforced ? `; aim for ${Math.round(report.min * 100)}%, at least ${Math.round(report.hard_min * 100)}%.` : " (not enforced: the story has no identification block)."}
+      </p>
+      <ol className="flex flex-col gap-0.5 font-mono text-[0.7rem]">
+        {rows.map((s) => (
+          <li key={s.segment_id} className="flex justify-between gap-2" title={s.reason ?? undefined}>
+            <span>{s.segment_id}</span>
+            <span className={s.status === "missing" ? "text-warn" : s.status === "exception" ? "text-muted" : ""}>{POV_STATUS_LABEL[s.status]}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}

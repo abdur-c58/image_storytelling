@@ -2,7 +2,7 @@
 
 Paste a story bible once, then one episode JSON per video, and get a finished YouTube video: AI images (Google Flow, via the Grok bot) kept consistent by approved location and character masters, Fish Audio narration with voice tags, licensed sound effects, Remotion cards and thumbnail, a loudness-checked mix, a sentence-driven crop render, and an upload to YouTube Studio (also via the bot).
 
-Documents use schema **2.1** (`story_bible`, `episode`, or a `bundle` of both); 2.0 documents are still accepted. What changed from 1.0, and in 2.1 (dialogue, recurring cast, character status), is in `docs/SCHEMA_V2_CHANGELOG.md`.
+Documents use schema **2.2** (`story_bible`, `episode`, or a `bundle` of both); 2.0 and 2.1 documents are still accepted. What changed from 1.0, in 2.1 (dialogue, recurring cast, character status) and in 2.2 (viewer identification, name cards, segment roles), is in `docs/SCHEMA_V2_CHANGELOG.md`.
 
 ```text
              paste JSON                               poll over HTTPS (outbound only)

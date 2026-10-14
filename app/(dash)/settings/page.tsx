@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { desc, gt, sql } from "drizzle-orm";
 import { dbDriver, getDb } from "@/lib/db";
 import { agents, apiTokens, usageEvents } from "@/lib/db/schema";
@@ -41,6 +42,7 @@ function isStale(lastSeen: Date): boolean {
 }
 
 export default async function SettingsPage() {
+  await connection();
   const db = await getDb();
   const since = daysAgo(30);
   const [tokens, agentRows, usage, driver, voiceSettings, channelCast] = await Promise.all([

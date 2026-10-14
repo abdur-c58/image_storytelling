@@ -11,6 +11,7 @@ import {
   LINE_SOURCES,
   PAIRING_LAYOUTS,
   POV_MODES,
+  SEGMENT_ROLES,
   SUPPORTED_SCHEMA_VERSIONS,
   TIMEFRAMES,
   VISUAL_TREATMENTS,
@@ -47,7 +48,7 @@ const slug = z
 
 const nonEmpty = z.string().trim().min(1, "Must not be empty.");
 const unit = z.number().min(0).max(1);
-const schemaVersion = z.enum(SUPPORTED_SCHEMA_VERSIONS, { error: `"schema_version" must be "2.1" (or "2.0").` });
+const schemaVersion = z.enum(SUPPORTED_SCHEMA_VERSIONS, { error: `"schema_version" must be "2.2" (or "2.1" / "2.0").` });
 
 // ── Shared blocks (story defaults, episode overrides) ───────────────────────
 
@@ -185,7 +186,33 @@ export const CropPolicySchema = z.looseObject({
 const partial = <T extends Record<string, z.ZodType>>(fields: T) =>
   z.looseObject(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.optional()])) as { [K in keyof T]: z.ZodOptional<T[K]> });
 
+const structureFields = {
+  /** Structure rules (segment roles) are warnings; switch them all off here. */
+  enabled: z.boolean(),
+  /** Episode 1 opens with a cold_open and has no recap. */
+  cold_open_first: z.boolean(),
+  /** Episodes 2+: a recap within the first N segments (0 = not required). */
+  recap_within_first: z.number().int().min(0).max(20),
+  recap_max_sec: z.number().min(0).max(120),
+  /** Exactly one status_board within the first N segments (0 = not required). */
+  status_board_within_first: z.number().int().min(0).max(20),
+  /** A cliffhanger within the last N segments unless series.is_finale (0 = not required). */
+  cliffhanger_within_last: z.number().int().min(0).max(20),
+  end_card_last: z.boolean(),
+};
+
+export const StructureSchema = z.looseObject({
+  enabled: structureFields.enabled.default(true),
+  cold_open_first: structureFields.cold_open_first.default(true),
+  recap_within_first: structureFields.recap_within_first.default(3),
+  recap_max_sec: structureFields.recap_max_sec.default(15),
+  status_board_within_first: structureFields.status_board_within_first.default(5),
+  cliffhanger_within_last: structureFields.cliffhanger_within_last.default(3),
+  end_card_last: structureFields.end_card_last.default(true),
+});
+
 export const VoiceOverrideSchema = partial(voiceFields);
+export const StructureOverrideSchema = partial(structureFields);
 export const AudioOverrideSchema = partial({ ...audioFields, music: partial(musicFields) });
 export const RenderOverrideSchema = partial(renderFields);
 export const CropOverrideSchema = partial(cropFields);
@@ -220,6 +247,8 @@ export const CharacterSchema = z.looseObject({
   voice: CharacterVoiceSchema.nullable().default(null),
   voice_group: z.string().trim().min(1).nullable().default(null),
   initial_status: z.enum(CHARACTER_STATUSES).default("with_protagonist"),
+  /** Other names the character goes by (nicknames); used by the narrator-name check. */
+  aliases: z.array(z.string().trim().min(1)).default([]),
 });
 
 /** A channel character used by this story; expanded from the registry when the bible is saved. */
@@ -231,9 +260,33 @@ export const CharacterRefSchema = z.looseObject({
   role: z.enum(CHARACTER_ROLES).optional(),
 });
 
+export const NameCardSchema = z.looseObject({
+  enabled: z.boolean().default(true),
+  /** The episode that must introduce the POV character with a name card. */
+  episode: z.number().int().min(1).default(1),
+  text: z.string().default(""),
+  template: z.literal("name_card").default("name_card"),
+});
+
+/** Second-person stories: the viewer is the POV character (2.2). */
+export const IdentificationSchema = z
+  .looseObject({
+    /** Defaults to narrator.pov_character_id. */
+    pov_character_id: slug.nullable().default(null),
+    min_on_screen_ratio: unit.default(0.8),
+    hard_min_on_screen_ratio: unit.default(0.5),
+    forbid_narrator_name: z.boolean().default(true),
+    name_card: NameCardSchema.nullable().default(null),
+  })
+  .refine((v) => v.hard_min_on_screen_ratio <= v.min_on_screen_ratio, {
+    message: "hard_min_on_screen_ratio must not be above min_on_screen_ratio.",
+    path: ["hard_min_on_screen_ratio"],
+  });
+
 export const NarratorSchema = z.looseObject({
   pov: z.enum(POV_MODES).default("second_person"),
   pov_character_id: slug.nullable().default(null),
+  identification: IdentificationSchema.nullable().default(null),
   voice: z
     .looseObject({
       voice_id: z.string().default(""),
@@ -349,6 +402,7 @@ export const StoryDefaultsSchema = z.looseObject({
   audio: AudioSchema.prefault({}),
   render: RenderSchema.prefault({}),
   crop_policy: CropPolicySchema.prefault({}),
+  structure: StructureSchema.prefault({}),
 });
 
 export const StoryAutomationSchema = z.looseObject({
@@ -386,6 +440,8 @@ export const SeriesSchema = z.looseObject({
   cliffhanger: z.string().default(""),
   next_episode_teaser: z.string().default(""),
   state_carryover: z.record(z.string(), z.unknown()).default({}),
+  /** The last episode: no cliffhanger required. */
+  is_finale: z.boolean().default(false),
 });
 
 export const SceneCharacterSchema = z.looseObject({
@@ -418,6 +474,8 @@ export const SceneSchema = z.looseObject({
   timeframe: z.enum(TIMEFRAMES).default("present"),
   /** null: flashback_tint for flashbacks, none otherwise. */
   visual_treatment: z.enum(VISUAL_TREATMENTS).nullable().default(null),
+  /** Why the POV character is deliberately not in this picture; excludes it from the on-screen ratio. */
+  pov_exception_reason: z.string().trim().min(1).max(160).nullable().default(null),
 });
 
 export const ThumbnailSceneSchema = z.looseObject({
@@ -458,6 +516,10 @@ export const RemotionPropsSchema = z.looseObject({
   items: z.array(RemotionItemSchema).default([]),
   footer: z.string().nullable().default(null),
   accent: z.enum(["red", "blue", "none"]).default("red"),
+  /** name_card: the big centred line (defaults to narrator.identification.name_card.text). */
+  text: z.string().nullable().default(null),
+  /** name_card: whose approved sheet is shown as a small portrait (defaults to the POV character). */
+  character_id: slug.nullable().default(null),
 });
 
 export const RemotionSchema = z.looseObject({
@@ -500,6 +562,7 @@ export const SegmentSchema = z.looseObject({
   id: slug,
   order: z.number().int().min(1),
   type: z.enum(SEGMENT_TYPES),
+  role: z.enum(SEGMENT_ROLES).default("main"),
   narration: z.string().default(""),
   tts_text: z.string().nullable().default(null),
   /** Multi-speaker alternative to narration (one or the other). */
@@ -574,6 +637,7 @@ export const OverridesSchema = z.looseObject({
   audio: AudioOverrideSchema.optional(),
   render: RenderOverrideSchema.optional(),
   crop_policy: CropOverrideSchema.optional(),
+  structure: StructureOverrideSchema.optional(),
 });
 
 export const BibleAdditionsSchema = z.looseObject({
@@ -630,6 +694,9 @@ export type Line = z.output<typeof LineSchema>;
 export type CharacterStatusChange = z.output<typeof CharacterStatusChangeSchema>;
 export type CharacterGroup = z.output<typeof CharacterGroupSchema>;
 export type Voice = z.output<typeof VoiceSchema>;
+export type Structure = z.output<typeof StructureSchema>;
+export type Identification = z.output<typeof IdentificationSchema>;
+export type SegmentRole = z.output<typeof SegmentSchema>["role"];
 export type Audio = z.output<typeof AudioSchema>;
 export type Render = z.output<typeof RenderSchema>;
 export type CropPolicy = z.output<typeof CropPolicySchema>;
@@ -651,6 +718,7 @@ export type Episode = EpisodeDoc & {
     characters: { id: string; name: string; visual_description: string; reference_image_ids: string[] }[];
   };
   voice: Voice;
+  structure: Structure;
   /** Voice per speaker ("narrator" and every character with a voice), defaults filled in. */
   voices: Record<string, ResolvedVoice>;
   audio: Audio;

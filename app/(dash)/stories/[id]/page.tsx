@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -17,6 +18,7 @@ import { ago, StateBadge } from "../../ui";
 import { CastPanel, DeleteStoryButton, MasterCard, StoryActionButton, type CastView, type MasterView } from "./client";
 
 export default async function StoryPage({ params }: PageProps<"/stories/[id]">) {
+  await connection();
   const { id } = await params;
   const storyId = decodeURIComponent(id);
   const db = await getDb();

@@ -3,6 +3,7 @@ import { and, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { readyAssetMap } from "@/lib/assets";
 import type { Db } from "@/lib/db";
 import { assets, projects, segments, stories, storyMasters, tasks, type ProjectRow, type TaskRow } from "@/lib/db/schema";
+import { NAME_CARD_TEMPLATE } from "@/lib/episode/constants";
 import { buildImageItems, buildThumbnailItems, type ImageItem } from "@/lib/episode/prompt";
 import type { Episode, StoryBible } from "@/lib/episode/schema";
 import { env } from "@/lib/env";
@@ -266,7 +267,14 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const cardBgsReady = cardsMissing.every(
         (id) => !req.cardBackgrounds[id] || (has(assetKeys.image(req.cardBackgrounds[id])) && !segImageTasks.some(isActive)),
       );
-      if (cardsMissing.length && !activeOf("cards") && cardBgsReady) {
+      // A name card shows its character's approved master, so it waits for that approval (images wait for it anyway).
+      const portraitPending = cardsMissing.some((id) => {
+        const card = ep.segments.find((s) => s.id === id);
+        const cid = card?.remotion?.template === NAME_CARD_TEMPLATE ? card.remotion.props.character_id : null;
+        const outfit = cid ? ep.story?.characters.find((c) => c.id === cid)?.outfit_states[0]?.id : undefined;
+        return !!outfit && !!unapproved?.has(`char/${cid}/${outfit}`);
+      });
+      if (cardsMissing.length && !activeOf("cards") && cardBgsReady && !portraitPending) {
         await runStage("cards", { segment_ids: cardsMissing.length === req.cards.length ? null : cardsMissing }, { priority: 3 });
       }
       const cardsReady = stageReady("cards");

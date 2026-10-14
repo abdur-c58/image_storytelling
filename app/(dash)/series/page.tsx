@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 import { getDb } from "@/lib/db";
@@ -5,6 +6,7 @@ import { projects } from "@/lib/db/schema";
 import { PageHeader } from "../ui";
 
 export default async function SeriesListPage() {
+  await connection();
   const db = await getDb();
   const rows = await db
     .select({
