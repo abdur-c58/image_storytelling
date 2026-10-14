@@ -27,7 +27,9 @@ import {
   approveMaster,
   commitStoryState,
   deleteStory,
+  promoteCharacter,
   regenerateMaster,
+  requestVoiceSample,
 } from "@/lib/pipeline/story";
 
 export interface CreateState {
@@ -58,7 +60,7 @@ export async function validateDocumentAction(text: string): Promise<ValidationRe
       episode: null,
       needs_story: null,
       continuity: null,
-      errors: [{ level: "error", path: [], path_text: "(root)", message: "Document is larger than 1 MB.", line: null, column: null }],
+      errors: [{ level: "error", category: "general", path: [], path_text: "(root)", message: "Document is larger than 1 MB.", line: null, column: null }],
       warnings: [],
       estimate: null,
     };
@@ -200,7 +202,9 @@ export type StoryAction =
   | { kind: "approve_master"; masterKey: string; assetId?: string }
   | { kind: "approve_all" }
   | { kind: "regen_master"; masterKey: string }
-  | { kind: "commit_state"; projectId: string };
+  | { kind: "commit_state"; projectId: string }
+  | { kind: "test_voice"; speaker: string; text?: string }
+  | { kind: "promote_character"; characterId: string };
 
 export async function storyAction(storyId: string, action: StoryAction): Promise<{ error: string | null }> {
   await requireAdmin();
@@ -218,6 +222,12 @@ export async function storyAction(storyId: string, action: StoryAction): Promise
         break;
       case "commit_state":
         if (!(await commitStoryState(db, action.projectId))) throw new Error("That episode has no story state to commit.");
+        break;
+      case "test_voice":
+        await requestVoiceSample(db, storyId, action.speaker, action.text);
+        break;
+      case "promote_character":
+        await promoteCharacter(db, storyId, action.characterId);
         break;
     }
   } catch (error) {

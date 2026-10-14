@@ -43,7 +43,22 @@ export interface PlanInput {
   segment_end: number;
   policy: CropPolicy;
   focal_points: FocalPoint[];
+  /** Point to aim at when an on-screen speaker's sentence triggers a crop, by speaker id. */
+  speaker_focal?: Record<string, FocalPoint>;
   seed: string;
+}
+
+/** A speaker change between sentence k-1 and k (only when sentences carry speakers). */
+export function isSpeakerBoundary(s: SentenceTiming[], k: number): boolean {
+  return k > 0 && k < s.length && !!s[k].speaker && !!s[k - 1].speaker && s[k].speaker !== s[k - 1].speaker;
+}
+
+/** Move a crop start by up to one sentence onto a speaker change, staying after `first`. */
+export function snapToSpeakerBoundary(s: SentenceTiming[], c: number, first: number): number {
+  if (isSpeakerBoundary(s, c)) return c;
+  if (c + 1 < s.length && isSpeakerBoundary(s, c + 1)) return c + 1;
+  if (c - 1 > first && isSpeakerBoundary(s, c - 1)) return c - 1;
+  return c;
 }
 
 const r5 = (x: number) => Math.round(x * 1e5) / 1e5;
@@ -90,11 +105,17 @@ function pickWindow(
   p: CropPolicy,
   focal: FocalPoint[],
   previous: { x: number; y: number }[],
+  speaker?: FocalPoint,
 ): { rect: CropRect; label: string | null } {
   const half = scale / 2;
   const clamp = (v: number) => Math.min(1 - half, Math.max(half, v));
   const range = 1 - scale;
   const minDist = range * 0.5;
+  if (speaker && rng() < p.focal_bias) {
+    const cx = clamp(speaker.x);
+    const cy = clamp(speaker.y);
+    return { rect: { x: r5(cx - half), y: r5(cy - half), w: r5(scale), h: r5(scale) }, label: speaker.label || null };
+  }
   let best: { cx: number; cy: number; label: string | null; d: number } | null = null;
   for (let attempt = 0; attempt < 12; attempt++) {
     let cx: number;
@@ -137,7 +158,7 @@ export function planSegmentCrops(input: PlanInput): CropKeyframe[] {
   let fullSince = input.segment_start;
   while (first < n) {
     const N = n === 2 ? 1 : sampleN(rng, p.sentences_before_crop);
-    const c = first + N;
+    const c = n === 2 ? first + N : snapToSpeakerBoundary(s, first + N, first);
     if (c >= n) break;
     const tIn = clampT(transitionStart(s[c - 1], s[c], dur));
     if (tIn - fullSince < p.min_hold_sec) {
@@ -145,6 +166,8 @@ export function planSegmentCrops(input: PlanInput): CropKeyframe[] {
       continue;
     }
     let last = Math.min(n - 1, c + p.hold_sentences - 1);
+    // Return to full frame on a speaker change if one is a sentence away.
+    if (last + 2 < n && !isSpeakerBoundary(s, last + 1) && isSpeakerBoundary(s, last + 2)) last++;
     let tOut: number | null = null;
     for (;;) {
       if (last < n - 1) tOut = clampT(transitionStart(s[last], s[last + 1], dur));
@@ -157,7 +180,9 @@ export function planSegmentCrops(input: PlanInput): CropKeyframe[] {
     if (holdEnd - (tIn + dur) < p.min_hold_sec) break;
 
     const amount = sampleAmount(rng, p);
-    const win = pickWindow(rng, scale(amount), p, input.focal_points, centres);
+    const trigger = s[c];
+    const speakerPoint = trigger.on_screen && trigger.speaker ? input.speaker_focal?.[trigger.speaker] : undefined;
+    const win = pickWindow(rng, scale(amount), p, input.focal_points, centres, speakerPoint);
     centres.push({ x: win.rect.x + win.rect.w / 2, y: win.rect.y + win.rect.h / 2 });
     out.push({
       kind: "crop",

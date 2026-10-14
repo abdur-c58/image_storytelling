@@ -1,3 +1,4 @@
+import { segmentText } from "@/lib/episode/lines";
 import { pictureSourceSegmentId, segmentNeedsGeneratedImage } from "@/lib/episode/prompt";
 import type { Episode, Segment } from "@/lib/episode/schema";
 
@@ -10,7 +11,7 @@ export function isCard(segment: Segment): boolean {
 }
 
 export function isSpoken(segment: Segment): boolean {
-  return !segment.silent && segment.narration.trim().length > 0;
+  return segmentText(segment).trim().length > 0;
 }
 
 export const assetKeys = {

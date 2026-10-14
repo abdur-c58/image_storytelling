@@ -15,6 +15,7 @@ import {
   checkBibleAdditions,
   checkContinuity,
   checkStoryBible,
+  masterKeyForGroup,
   masterKeyForOutfit,
   masterKeyForView,
   startSnapshotFor,
@@ -36,6 +37,9 @@ import {
   type StoryBible,
   type Voice,
 } from "./schema";
+import { checkAgainstRegistry, expandCast, type CastRegistry } from "./cast";
+import { NARRATOR } from "./constants";
+import { segmentText } from "./lines";
 import { segmentSentences } from "./sentences";
 import { firstMismatch, normalizeTagName, parseTags, tagStats, ttsMatchesNarration } from "./tags";
 import { normalizePhrase, phraseInText } from "./text";
@@ -44,6 +48,8 @@ import { hasForbiddenYoutubeChars, utf8ByteLength, youtubeTagsLength } from "./y
 export type { IssuePath } from "./continuity";
 export type DocType = "story_bible" | "episode" | "bundle";
 
+export type IssueCategory = "continuity" | "voice" | "crop" | "general";
+
 export interface ValidationIssue {
   level: "error" | "warning";
   path: IssuePath;
@@ -51,6 +57,21 @@ export interface ValidationIssue {
   message: string;
   line: number | null;
   column: number | null;
+  /** For grouping in the validation panel. */
+  category: IssueCategory;
+}
+
+const VOICE_KEYS = new Set(["narration", "tts_text", "lines", "voice", "narrator", "voice_group", "speaker", "voice_effect", "sentence_split_override"]);
+const CONTINUITY_KEYS = new Set(["scene", "bible_additions", "character_status_changes", "characters", "character_groups", "scene_bible", "pov_character_id", "story_id"]);
+
+export function issueCategory(path: IssuePath, message: string): IssueCategory {
+  const keys = path.filter((p): p is string => typeof p === "string");
+  if (keys.some((k) => k === "crop_policy" || k === "crop_override" || k === "focal_points")) return "crop";
+  if (keys.some((k) => VOICE_KEYS.has(k)) || /\bvoice\b|tag/i.test(message)) {
+    if (!/is "(separated|missing|captive|deceased)"/.test(message)) return "voice";
+  }
+  if (keys.some((k) => CONTINUITY_KEYS.has(k)) || /master image|first appears|state/i.test(message)) return "continuity";
+  return "general";
 }
 
 /** The stored story an episode is checked against. */
@@ -61,6 +82,8 @@ export interface StoryContext {
   approvedMasters?: Set<string>;
   /** Whether the story requires approved masters before images are generated. */
   mastersGate?: boolean;
+  /** The channel cast, for checking characters added by the episode. */
+  registry?: CastRegistry | null;
 }
 
 export interface ValidationResult {
@@ -139,6 +162,7 @@ class IssueCollector {
       message,
       line: location?.line ?? null,
       column: location?.column ?? null,
+      category: issueCategory(path, message),
     };
     (level === "error" ? this.errors : this.warnings).push(issue);
   }
@@ -150,8 +174,17 @@ class IssueCollector {
   }
 }
 
+type ZodIssueLike = { path: PropertyKey[]; message: string; code?: string; errors?: ZodIssueLike[][] };
+
+/** A union failure reports every branch; keep the branch that got furthest (fewest issues; ties go to the last, most general branch). */
+function flattenUnion(issue: ZodIssueLike): ZodIssueLike[] {
+  if (issue.code !== "invalid_union" || !issue.errors?.length) return [issue];
+  const best = [...issue.errors].reverse().sort((a, b) => a.length - b.length)[0];
+  return best.flatMap((inner) => flattenUnion({ ...inner, path: [...issue.path, ...inner.path] }));
+}
+
 function zodIssues(error: z.ZodError, issues: IssueCollector, raw: unknown, prefix: IssuePath = []) {
-  for (const issue of error.issues) {
+  for (const issue of (error.issues as ZodIssueLike[]).flatMap(flattenUnion)) {
     const path = issue.path.filter((p): p is string | number => typeof p !== "symbol");
     let message = issue.message;
     // Name the segment so the message is readable without counting array indices.
@@ -215,62 +248,92 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
 
   const whitelist = new Set(voice.tag_whitelist.map(normalizeTagName));
   const paired = new Set(voice.paired_tags.map((t) => t.toLowerCase()));
+  const lineIds = new Map<string, string>();
+
+  /** Clean text + tagged tts_text rules, shared by narration and every dialogue line. */
+  const checkSpoken = (text: string, tts: string | null, textPath: IssuePath, ttsPath: IssuePath, label: string, what: string) => {
+    const words = countWords(text);
+    if (/[[\]]/.test(text) || /<\/?[a-z][a-z-]*>/i.test(text)) {
+      issues.error(textPath, `${label}: ${what} must be clean text; put [tags] and <tags> in "tts_text".`);
+    }
+    if (tts === null) return;
+    const parsed = parseTags(tts);
+    for (const p of parsed.problems) issues.error(ttsPath, `${label}: ${p.message} (character ${p.index + 1})`);
+    if (!ttsMatchesNarration(tts, text)) {
+      const m = firstMismatch(tts, text);
+      issues.error(
+        ttsPath,
+        `${label}: tts_text without tags must match ${what} word for word${m ? ` (tts_text has "${m.tts}", ${what} has "${m.narration}")` : ""}.`,
+      );
+    }
+    const stats = tagStats(parsed.tokens);
+    for (const cue of new Set(stats.cues)) {
+      if (!whitelist.has(cue)) {
+        const msg = `${label}: [${cue}] is not in voice.tag_whitelist; Fish may read it aloud.`;
+        if (voice.unknown_tag_level === "error") issues.error(ttsPath, msg);
+        else issues.warn(ttsPath, msg);
+      }
+    }
+    for (const tag of new Set(stats.paired)) {
+      if (!paired.has(tag)) issues.error(ttsPath, `${label}: <${tag}> is not a supported paired tag (${[...paired].join(", ")}).`);
+    }
+    const density = words ? (stats.total / words) * 100 : stats.total ? Infinity : 0;
+    if (density > voice.max_tags_per_100_words) {
+      issues.warn(
+        ttsPath,
+        `${label}: ${stats.total} tags for ${words} words is dense (limit ${voice.max_tags_per_100_words} per 100 words); heavy tagging degrades delivery.`,
+      );
+    }
+  };
 
   segments.forEach((seg, i) => {
     const at = (...rest: IssuePath) => P("segments", i, ...rest);
     const label = seg.id;
-    const words = countWords(seg.narration);
+    const spoken = segmentText(seg);
+    const words = countWords(spoken);
+    const hasLines = !!seg.lines?.length;
 
-    if (!seg.silent && !seg.narration.trim()) {
-      issues.error(at("narration"), `${label}: "narration" is required unless "silent" is true.`);
+    if (hasLines && (seg.narration.trim() || seg.tts_text)) {
+      issues.error(at("lines"), `${label}: use either "narration" (+ "tts_text") or "lines", not both.`);
     }
-    if (seg.silent && seg.narration.trim()) {
-      issues.warn(at("narration"), `${label}: segment is silent, so its narration will not be spoken.`);
+    if (!seg.silent && !spoken.trim()) {
+      issues.error(at("narration"), `${label}: "narration" (or "lines") is required unless "silent" is true.`);
+    }
+    if (seg.silent && (seg.narration.trim() || hasLines)) {
+      issues.warn(at(hasLines ? "lines" : "narration"), `${label}: segment is silent, so its narration will not be spoken.`);
     }
     if (words > MAX_SEGMENT_WORDS_WARNING) {
-      issues.warn(at("narration"), `${label}: ${words} words is long for one image (over ${MAX_SEGMENT_WORDS_WARNING}). Consider splitting.`);
+      issues.warn(at(hasLines ? "lines" : "narration"), `${label}: ${words} words is long for one image (over ${MAX_SEGMENT_WORDS_WARNING}). Consider splitting.`);
     }
 
     // Voice tags: narration stays clean; tts_text carries the tags and must say the same words.
-    if (/[[\]]/.test(seg.narration) || /<\/?[a-z][a-z-]*>/i.test(seg.narration)) {
-      issues.error(at("narration"), `${label}: narration must be clean text; put [tags] and <tags> in "tts_text".`);
-    }
-    if (seg.tts_text !== null && !seg.silent) {
-      const parsed = parseTags(seg.tts_text);
-      for (const p of parsed.problems) issues.error(at("tts_text"), `${label}: ${p.message} (character ${p.index + 1})`);
-      if (!ttsMatchesNarration(seg.tts_text, seg.narration)) {
-        const m = firstMismatch(seg.tts_text, seg.narration);
-        issues.error(
-          at("tts_text"),
-          `${label}: tts_text without tags must match narration word for word${m ? ` (tts_text has "${m.tts}", narration has "${m.narration}")` : ""}.`,
-        );
-      }
-      const stats = tagStats(parsed.tokens);
-      for (const cue of new Set(stats.cues)) {
-        if (!whitelist.has(cue)) {
-          const msg = `${label}: [${cue}] is not in voice.tag_whitelist; Fish may read it aloud.`;
-          if (voice.unknown_tag_level === "error") issues.error(at("tts_text"), msg);
-          else issues.warn(at("tts_text"), msg);
+    if (!hasLines) {
+      checkSpoken(seg.narration, seg.silent ? null : seg.tts_text, at("narration"), at("tts_text"), label, "narration");
+    } else {
+      seg.lines!.forEach((line, li) => {
+        const lp = (...rest: IssuePath) => at("lines", li, ...rest);
+        const prev = lineIds.get(line.id);
+        if (prev) issues.error(lp("id"), `${label}: line id "${line.id}" is already used in ${prev}.`);
+        else lineIds.set(line.id, label);
+        checkSpoken(line.text, line.tts_text, lp("text"), lp("tts_text"), `${label}/${line.id}`, "the line text");
+        if (/["“”«»]/.test(line.text)) {
+          issues.warn(lp("text"), `${label}/${line.id}: dialogue is written without quote marks; the speaker field says who is talking.`);
         }
-      }
-      for (const tag of new Set(stats.paired)) {
-        if (!paired.has(tag)) issues.error(at("tts_text"), `${label}: <${tag}> is not a supported paired tag (${[...paired].join(", ")}).`);
-      }
-      const density = words ? (stats.total / words) * 100 : stats.total ? Infinity : 0;
-      if (density > voice.max_tags_per_100_words) {
-        issues.warn(
-          at("tts_text"),
-          `${label}: ${stats.total} tags for ${words} words is dense (limit ${voice.max_tags_per_100_words} per 100 words); heavy tagging degrades delivery.`,
-        );
+        if (line.speaker === NARRATOR && line.voice_effect !== "none" && line.voice_effect !== "memory") {
+          issues.warn(lp("voice_effect"), `${label}/${line.id}: a ${line.voice_effect} effect on the narrator is unusual.`);
+        }
+      });
+      if (seg.sentence_split_override) {
+        issues.error(at("sentence_split_override"), `${label}: sentence_split_override only works with "narration"; with "lines", each line is split on its own.`);
       }
     }
-    if (seg.sentence_split_override) {
+    if (seg.sentence_split_override && !hasLines) {
       const joined = normalizePhrase(seg.sentence_split_override.join(" "));
       if (joined !== normalizePhrase(seg.narration)) {
         issues.error(at("sentence_split_override"), `${label}: sentence_split_override must contain exactly the narration's words, in order.`);
       }
     }
-    if (!seg.silent && seg.narration.trim() && segmentSentences(seg).length === 0) {
+    if (!seg.silent && !hasLines && seg.narration.trim() && segmentSentences(seg).length === 0) {
       issues.error(at("narration"), `${label}: no sentences found in narration.`);
     }
 
@@ -347,7 +410,7 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
       if (cue.placement === "at_phrase") {
         if (!cue.at_phrase?.trim()) {
           issues.warn([...cuePath, "at_phrase"], `${label}: placement "at_phrase" without "at_phrase"; falls back to segment_start.`);
-        } else if (!phraseInText(cue.at_phrase, seg.narration)) {
+        } else if (!phraseInText(cue.at_phrase, spoken)) {
           issues.warn([...cuePath, "at_phrase"], `${label}: "${cue.at_phrase}" is not in this segment's narration; falls back to segment_start.`);
         }
       }
@@ -437,8 +500,8 @@ function checkBibleOnly(bible: StoryBible, issues: IssueCollector, prefix: Issue
       );
     }
   });
-  if (!bible.defaults.voice.voice_id.trim()) {
-    issues.warn([...prefix, "defaults", "voice", "voice_id"], "No voice_id; the worker's default FISH_VOICE_ID will be used.");
+  if (!bible.narrator.voice?.voice_id.trim() && !bible.defaults.voice.voice_id.trim()) {
+    issues.warn([...prefix, "defaults", "voice", "voice_id"], "No narrator voice_id; the worker's default FISH_VOICE_ID will be used.");
   }
 }
 
@@ -456,6 +519,9 @@ function checkEpisodeWithStory(
     return { episode: null, continuity: null };
   }
   checkBibleAdditions(ctx.bible, doc.bible_additions, issues, prefix);
+  doc.bible_additions.characters.forEach((c, ci) => {
+    checkAgainstRegistry(c, ctx.registry, ctx.bible.story_id, issues, P("bible_additions", "characters", ci));
+  });
   const effective = applyBibleAdditions(ctx.bible, doc.bible_additions);
   let episode: Episode;
   try {
@@ -485,6 +551,7 @@ function checkEpisodeWithStory(
     const missing = [
       ...continuity.usedViews.map(masterKeyForView),
       ...continuity.usedOutfits.map(masterKeyForOutfit),
+      ...continuity.usedGroups.map(masterKeyForGroup),
     ].filter((k) => !ctx.approvedMasters!.has(k));
     if (missing.length) {
       issues.warn(
@@ -539,6 +606,8 @@ export interface ValidateOptions {
   locate?: Locator | null;
   /** For episode documents: the stored story (with its state and masters). */
   story?: StoryContext | null;
+  /** The channel cast registry. Without it, `{ ref }` characters are placeholders checked on save. */
+  registry?: CastRegistry | null;
 }
 
 /** Validate any v2 document. Episodes are fully checked only when their story is known (bundle or `story`). */
@@ -564,9 +633,10 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
       zodIssues(parsed.error, issues, raw);
       return empty(doc_type, issues);
     }
-    checkBibleOnly(parsed.data, issues, []);
+    const bible = expandCast(parsed.data, options.registry, issues, []);
+    checkBibleOnly(bible, issues, []);
     const ok = issues.errors.length === 0;
-    return { ...empty(doc_type, issues), ok, story: parsed.data };
+    return { ...empty(doc_type, issues), ok, story: bible };
   }
 
   if (doc_type === "bundle") {
@@ -575,11 +645,12 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
       zodIssues(parsed.error, issues, raw);
       return empty(doc_type, issues);
     }
-    const { story_bible, episode: doc } = parsed.data;
+    const { episode: doc } = parsed.data;
+    const story_bible = expandCast(parsed.data.story_bible, options.registry, issues, ["story_bible"]);
     checkBibleOnly(story_bible, issues, ["story_bible"]);
     const ctx: StoryContext = options.story?.bible.story_id === story_bible.story_id
-      ? { ...options.story, bible: story_bible }
-      : { bible: story_bible, state: null };
+      ? { ...options.story, bible: story_bible, registry: options.registry }
+      : { bible: story_bible, state: null, registry: options.registry };
     const { episode, continuity } = checkEpisodeWithStory(doc, ctx, issues, now, ["episode"]);
     const estimate = episode ? estimateEpisode(episode) : null;
     if (estimate) runtimeWarnings(estimate, issues, ["episode"]);
@@ -614,7 +685,7 @@ export function validateDocument(raw: unknown, options: ValidateOptions = {}): V
       estimate,
     };
   }
-  const { episode, continuity } = checkEpisodeWithStory(doc, options.story, issues, now, []);
+  const { episode, continuity } = checkEpisodeWithStory(doc, { ...options.story, registry: options.story.registry ?? options.registry }, issues, now, []);
   const estimate = episode ? estimateEpisode(episode) : null;
   if (estimate) runtimeWarnings(estimate, issues, []);
   const ok = issues.errors.length === 0;
@@ -640,6 +711,7 @@ export function parseJsonText(text: string): { raw: unknown; errors: ValidationI
         message: `Invalid JSON: ${code}${hint}`,
         line: loc.line,
         column: loc.column,
+        category: "general" as const,
       };
     }),
   };

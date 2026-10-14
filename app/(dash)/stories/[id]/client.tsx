@@ -57,6 +57,110 @@ export function StoryActionButton({
   );
 }
 
+export interface CastView {
+  id: string;
+  name: string;
+  role: string;
+  scope: "story" | "channel" | null;
+  status: string | null;
+  lastSeen: number | null;
+  voiceId: string;
+  voiceGroup: string | null;
+  canSpeak: boolean;
+  sampleUrl: string | null;
+  sheets: { key: string; url: string; approved: boolean }[];
+}
+
+const CHARACTER_TONE: Record<string, string> = {
+  with_protagonist: "text-ok",
+  returned: "text-ok",
+  unknown: "text-muted",
+  separated: "text-warn",
+  missing: "text-warn",
+  captive: "text-warn",
+  deceased: "text-bad",
+};
+
+export function CastPanel({ storyId, cast }: { storyId: string; cast: CastView[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="text-left text-muted">
+          <tr>
+            <th className="py-1">Character</th>
+            <th>Status</th>
+            <th>Voice</th>
+            <th>Voice test</th>
+            <th>Sheets</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {cast.map((c) => (
+            <tr key={c.id} className="border-t border-line align-top">
+              <td className="py-2 pr-3">
+                <p className="text-sm font-medium">{c.name}</p>
+                <p className="font-mono text-muted">{c.id}</p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <span className="chip text-muted">{c.role}</span>
+                  {c.scope && <span className={`chip ${c.scope === "channel" ? "text-info" : "text-muted"}`}>{c.scope}</span>}
+                </div>
+              </td>
+              <td className="pr-3">
+                {c.status ? <span className={`chip ${CHARACTER_TONE[c.status] ?? ""}`}>{c.status.replace(/_/g, " ")}</span> : <span className="text-muted">–</span>}
+                {c.lastSeen !== null && <p className="mt-1 text-muted">last seen ep {c.lastSeen}</p>}
+              </td>
+              <td className="pr-3">
+                {c.canSpeak ? (
+                  <>
+                    <p className="font-mono">{c.voiceId || <span className="text-muted">worker default</span>}</p>
+                    {c.voiceGroup && <p className="text-muted">group {c.voiceGroup}</p>}
+                  </>
+                ) : (
+                  <span className="text-muted">no voice (can&apos;t speak lines)</span>
+                )}
+              </td>
+              <td className="min-w-56 pr-3">
+                {c.canSpeak && (
+                  <div className="flex flex-col gap-1">
+                    {c.sampleUrl && <audio src={c.sampleUrl} controls preload="none" className="h-7 w-full" />}
+                    <StoryActionButton storyId={storyId} action={{ kind: "test_voice", speaker: c.id }} label={c.sampleUrl ? "New test" : "Test voice"} small />
+                  </div>
+                )}
+              </td>
+              <td className="pr-3">
+                <div className="flex gap-1">
+                  {c.sheets.map((s) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={s.key}
+                      src={s.url}
+                      alt={s.key}
+                      title={`${s.key}${s.approved ? "" : " (not approved)"}`}
+                      className={`h-12 rounded-md border object-cover ${s.approved ? "border-line" : "border-warn opacity-70"}`}
+                    />
+                  ))}
+                </div>
+              </td>
+              <td className="py-2">
+                {c.scope === "story" && (
+                  <StoryActionButton
+                    storyId={storyId}
+                    action={{ kind: "promote_character", characterId: c.id }}
+                    label="Add to channel cast"
+                    small
+                    confirm={`Make ${c.name} a recurring channel character? Later stories reuse their look and voice, and this can't be undone.`}
+                  />
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 const STATUS_TONE: Record<string, string> = {
   missing: "text-muted",
   requested: "text-info",

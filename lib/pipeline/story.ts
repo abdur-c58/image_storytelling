@@ -5,11 +5,13 @@ import type { Db } from "@/lib/db";
 import { assets, projects, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
 import { initialStoryState, type StoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
 import { buildMasterItems, type MasterItem } from "@/lib/episode/prompt";
-import { applyBibleAdditions } from "@/lib/episode/resolve";
+import { NARRATOR } from "@/lib/episode/constants";
+import { applyBibleAdditions, speakerVoices, upgradeStoredBible } from "@/lib/episode/resolve";
 import type { BibleAdditions, StoryBible } from "@/lib/episode/schema";
 import type { StoryContext } from "@/lib/episode/validate";
 import { createTask, logEvent, type Owner } from "@/lib/queue";
 import { getStorage, storyObjectPrefix } from "@/lib/storage";
+import { loadCastRegistry, recordChannelMaster, registerChannelCast, reuseChannelMasters } from "./cast";
 
 export const STORY_STATES = ["STORY_VALIDATED", "LOCATION_MASTERS_REQUESTED", "MASTERS_REVIEW", "MASTERS_APPROVED"] as const;
 export type StoryStateName = (typeof STORY_STATES)[number];
@@ -25,7 +27,7 @@ export function mastersGateOn(bible: StoryBible): boolean {
 
 export async function getStory(db: Db, storyId: string): Promise<StoryRow | null> {
   const [row] = await db.select().from(stories).where(eq(stories.id, storyId));
-  return row ?? null;
+  return row ? { ...row, bible: upgradeStoredBible(row.bible) } : null;
 }
 
 /** Everything an episode of this story is validated against. */
@@ -61,7 +63,13 @@ function bibleIds(b: StoryBible): string[] {
 
 export function supersetProblems(previous: StoryBible, next: StoryBible): string[] {
   const kept = new Set(bibleIds(next));
-  return bibleIds(previous).filter((id) => !kept.has(id)).map((id) => `${id} was removed`);
+  const scopes = new Map(next.characters.map((c) => [c.id, c.scope]));
+  return [
+    ...bibleIds(previous).filter((id) => !kept.has(id)).map((id) => `${id} was removed`),
+    ...previous.characters
+      .filter((c) => c.scope === "channel" && scopes.get(c.id) === "story")
+      .map((c) => `character ${c.id} went from channel to story scope (only story → channel is allowed)`),
+  ];
 }
 
 const promptHash = (m: MasterItem) => sha256Hex(new TextEncoder().encode(`${m.final_prompt}\n${m.negative_prompt}`)).slice(0, 16);
@@ -152,8 +160,62 @@ export async function saveStory(
     await syncMasters(db, bible, true);
     await logEvent(db, { storyId: bible.story_id }, null, "info", "Story created from story bible JSON.");
   }
+  await registerChannelCast(db, bible);
+  await reuseChannelMasters(db, bible.story_id);
   await advanceStory(db, bible.story_id);
   return { storyId: bible.story_id, created: !existing };
+}
+
+export const voiceSampleKey = (speaker: string) => `voice_sample/${speaker}`;
+
+/** Ask the worker to voice a short test line with one speaker's voice (Story page "Test voice"). */
+export async function requestVoiceSample(db: Db, storyId: string, speaker: string, text?: string): Promise<void> {
+  const story = await getStory(db, storyId);
+  if (!story) throw new Error("Story not found.");
+  const bible = story.bible as StoryBible;
+  const voices = speakerVoices(bible, bible.defaults.voice);
+  const voice = voices[speaker];
+  if (!voice) throw new Error(`${speaker} has no voice in the story bible.`);
+  const name = speaker === NARRATOR ? "the narrator" : (bible.characters.find((c) => c.id === speaker)?.name ?? speaker);
+  await createTask(db, {
+    storyId,
+    kind: "worker",
+    type: "voice_sample",
+    scope: `${speaker}:${Date.now()}`,
+    payload: {
+      speaker,
+      voice,
+      text: (text ?? "").trim().slice(0, 300) || `This is a voice test for ${name}. The quick brown fox jumps over the lazy dog.`,
+      asset_key: voiceSampleKey(speaker),
+      audio: bible.defaults.audio,
+    },
+    priority: 30,
+    maxAttempts: 2,
+    timeoutMinutes: 10,
+  });
+  await logEvent(db, { storyId }, null, "info", `Voice test requested for ${name}.`);
+}
+
+/** Make a story character part of the channel cast (story → channel only; never back). */
+export async function promoteCharacter(db: Db, storyId: string, characterId: string): Promise<void> {
+  const story = await getStory(db, storyId);
+  if (!story) throw new Error("Story not found.");
+  const bible = structuredClone(story.bible as StoryBible);
+  const c = bible.characters.find((x) => x.id === characterId);
+  if (!c) throw new Error(`Unknown character ${characterId}.`);
+  if (c.scope === "channel") throw new Error(`${c.name} is already in the channel cast.`);
+  const registry = await loadCastRegistry(db);
+  const taken = registry.get(characterId);
+  if (taken) throw new Error(`The channel cast already has a "${characterId}" (from story "${taken.origin_story_id}").`);
+  c.scope = "channel";
+  await db.update(stories).set({ bible, updatedAt: new Date() }).where(eq(stories.id, storyId));
+  await registerChannelCast(db, bible);
+  const approved = await db
+    .select()
+    .from(storyMasters)
+    .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.status, "approved")));
+  for (const m of approved) if (m.approvedAssetId) await recordChannelMaster(db, storyId, m.masterKey, m.approvedAssetId);
+  await logEvent(db, { storyId }, null, "info", `${c.name} promoted to the channel cast.`);
 }
 
 /**
@@ -169,17 +231,24 @@ export async function mergeBibleAdditions(db: Db, storyId: string, additions: Bi
   if (JSON.stringify(merged) === JSON.stringify(before)) return false;
   await db.update(stories).set({ bible: merged, updatedAt: new Date() }).where(eq(stories.id, storyId));
   await syncMasters(db, merged, false);
+  await registerChannelCast(db, merged);
+  await reuseChannelMasters(db, storyId);
   await logEvent(db, { storyId }, null, "info", `Bible additions from episode ${episodeNumber} merged into the story.`);
   await advanceStory(db, storyId);
   return true;
 }
+
+const GROUP_TASK = "generate_character_group_master" as const;
+const MASTER_TASK_TYPES = ["generate_location_master", GROUP_TASK] as const;
+type MasterTaskType = (typeof MASTER_TASK_TYPES)[number];
+const taskTypeFor = (r: { kind: string }): MasterTaskType => (r.kind === "group" ? GROUP_TASK : "generate_location_master");
 
 function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[]) {
   const bible = story.bible as StoryBible;
   return {
     story_id: story.id,
     story_title: story.title,
-    purpose: "location_masters",
+    purpose: rows.every((r) => r.kind === "group") ? "character_group_masters" : "location_masters",
     style_bible: {
       global_style_prompt: bible.style_bible.global_style_prompt,
       negative_prompt: bible.style_bible.negative_prompt,
@@ -201,8 +270,11 @@ function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[]) {
   };
 }
 
-function trigger(bible: StoryBible) {
-  return bible.automation.bot_triggers.find((t) => t.bot_task_type === "generate_location_master");
+function trigger(bible: StoryBible, type = "generate_location_master") {
+  return (
+    bible.automation.bot_triggers.find((t) => t.bot_task_type === type) ??
+    bible.automation.bot_triggers.find((t) => t.bot_task_type === "generate_location_master")
+  );
 }
 
 /** Idempotent: queue missing masters, recompute the story state, and wake episodes waiting on masters. */
@@ -224,7 +296,7 @@ export async function advanceStory(db: Db, storyId: string): Promise<void> {
   const storyTasks = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.storyId, storyId), eq(tasks.type, "generate_location_master")));
+    .where(and(eq(tasks.storyId, storyId), inArray(tasks.type, MASTER_TASK_TYPES)));
   const activeKeys = new Set(
     storyTasks.filter(isActive).flatMap((t) => ((t.payload as { items?: { master_key: string }[] }).items ?? []).map((i) => i.master_key)),
   );
@@ -243,26 +315,30 @@ export async function advanceStory(db: Db, storyId: string): Promise<void> {
   const toRequest = rows.filter((r) => r.status === "missing" && r.attempts < MAX_MASTER_ATTEMPTS && !activeKeys.has(r.masterKey));
   const exhausted = rows.filter((r) => r.status === "missing" && r.attempts >= MAX_MASTER_ATTEMPTS);
   if (toRequest.length) {
-    const t = trigger(bible);
-    const size = t?.batch_size ?? 8;
-    const batchNo = storyTasks.length;
-    for (let i = 0; i < toRequest.length; i += size) {
-      const batch = toRequest.slice(i, i + size);
-      await createTask(db, {
-        storyId,
-        kind: "bot",
-        type: "generate_location_master",
-        scope: `masters:${String(batchNo + i / size + 1).padStart(2, "0")}`,
-        payload: masterTaskPayload(story, batch),
-        priority: 11,
-        maxAttempts: t?.retry.max_attempts ?? 3,
-        backoffSec: t?.retry.backoff_sec ?? 60,
-        timeoutMinutes: t?.timeout_minutes ?? 180,
-      });
-      await db
-        .update(storyMasters)
-        .set({ status: "requested", attempts: sql`${storyMasters.attempts} + 1`, updatedAt: new Date() })
-        .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, batch.map((r) => r.masterKey))));
+    let batchNo = storyTasks.length;
+    for (const type of MASTER_TASK_TYPES) {
+      const ofType = toRequest.filter((r) => taskTypeFor(r) === type);
+      const t = trigger(bible, type);
+      const size = t?.batch_size ?? 8;
+      for (let i = 0; i < ofType.length; i += size) {
+        const batch = ofType.slice(i, i + size);
+        batchNo++;
+        await createTask(db, {
+          storyId,
+          kind: "bot",
+          type,
+          scope: `${type === GROUP_TASK ? "groups" : "masters"}:${String(batchNo).padStart(2, "0")}`,
+          payload: masterTaskPayload(story, batch),
+          priority: 11,
+          maxAttempts: t?.retry.max_attempts ?? 3,
+          backoffSec: t?.retry.backoff_sec ?? 60,
+          timeoutMinutes: t?.timeout_minutes ?? 180,
+        });
+        await db
+          .update(storyMasters)
+          .set({ status: "requested", attempts: sql`${storyMasters.attempts} + 1`, updatedAt: new Date() })
+          .where(and(eq(storyMasters.storyId, storyId), inArray(storyMasters.masterKey, batch.map((r) => r.masterKey))));
+      }
     }
     rows = await db.select().from(storyMasters).where(eq(storyMasters.storyId, storyId));
   }
@@ -300,7 +376,7 @@ async function wakeEpisodes(db: Db, storyId: string) {
 }
 
 export async function onStoryTaskCompleted(db: Db, task: TaskRow): Promise<void> {
-  if (task.type !== "generate_location_master" || !task.storyId) return;
+  if (!(MASTER_TASK_TYPES as readonly string[]).includes(task.type) || !task.storyId) return;
   const uploaded = await db
     .select()
     .from(assets)
@@ -331,6 +407,7 @@ export async function approveMaster(db: Db, storyId: string, masterKey: string, 
     .update(storyMasters)
     .set({ status: "approved", approvedAssetId: chosen.id, approvedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.masterKey, masterKey)));
+  await recordChannelMaster(db, storyId, masterKey, chosen.id);
   await logEvent(db, { storyId }, null, "info", `Approved master ${masterKey}.`);
   await advanceStory(db, storyId);
 }
@@ -348,6 +425,7 @@ export async function approveAllGenerated(db: Db, storyId: string): Promise<numb
       .update(storyMasters)
       .set({ status: "approved", approvedAssetId: latest.id, approvedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.masterKey, r.masterKey)));
+    await recordChannelMaster(db, storyId, r.masterKey, latest.id);
     n++;
   }
   if (n) await logEvent(db, { storyId }, null, "info", `Approved ${n} master(s).`);
@@ -364,11 +442,12 @@ export async function regenerateMaster(db: Db, storyId: string, masterKey: strin
     .from(storyMasters)
     .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.masterKey, masterKey)));
   if (!row) throw new Error(`Unknown master ${masterKey}.`);
-  const t = trigger(story.bible as StoryBible);
+  const type = taskTypeFor(row);
+  const t = trigger(story.bible as StoryBible, type);
   await createTask(db, {
     storyId,
     kind: "bot",
-    type: "generate_location_master",
+    type,
     scope: `regen:${masterKey}:${Date.now()}`,
     payload: masterTaskPayload(story, [row]),
     priority: 20,

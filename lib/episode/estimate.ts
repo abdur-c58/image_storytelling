@@ -1,4 +1,5 @@
 import { DEFAULT_CARD_SECONDS, WORDS_PER_SECOND } from "./constants";
+import { segmentLines, segmentText } from "./lines";
 import type { Episode, Segment } from "./schema";
 
 export function countWords(text: string): number {
@@ -6,8 +7,8 @@ export function countWords(text: string): number {
   return trimmed ? trimmed.split(/\s+/).length : 0;
 }
 
-export function spokenText(segment: Pick<Segment, "narration" | "silent">): string {
-  return segment.silent ? "" : segment.narration;
+export function spokenText(segment: Segment): string {
+  return segmentText(segment);
 }
 
 /** Rough duration of one segment before TTS exists (words / 2.4 wps, cards held for at least their minimum). */
@@ -48,7 +49,7 @@ export function estimateEpisode(episode: EstimateInput): EpisodeEstimate {
     total += estimateSegmentSeconds(segment, pause);
     words += countWords(spokenText(segment));
     sfx += segment.sfx.length;
-    if (!segment.silent) ttsChars += (segment.tts_text ?? segment.narration).length;
+    for (const line of segmentLines(segment)) ttsChars += (line.tts_text ?? line.text).length;
     if (segment.type === "illustration") images += 1;
     if (segment.type === "reuse_image") reused += 1;
     if (segment.type === "title_card" || segment.type === "infographic") {

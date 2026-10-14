@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { initialStoryState, type StoryState } from "@/lib/episode/continuity";
 import { convertV1ToV2 } from "@/lib/episode/migrate";
 import { assembleNegative, buildImageItems, buildMasterItems, buildThumbnailItems, pictureSourceSegmentId } from "@/lib/episode/prompt";
-import { StoryBibleSchema, type StoryBible } from "@/lib/episode/schema";
+import { StoredStoryBibleSchema, type StoryBible } from "@/lib/episode/schema";
 import { parseTags, splitAtPauses, stripTags, ttsMatchesNarration } from "@/lib/episode/tags";
 import { applyPronunciations, normalizePhrase, phraseInText } from "@/lib/episode/text";
 import { validateDocument, validateText, type StoryContext } from "@/lib/episode/validate";
@@ -12,7 +12,7 @@ import { chapterProblem, formatYoutubeTimestamp, youtubeTagsLength } from "@/lib
 
 const fixture = (name: string) => readFileSync(path.join(__dirname, "..", "fixtures", name), "utf8");
 const json = (name: string) => JSON.parse(fixture(name));
-const bible = (): StoryBible => StoryBibleSchema.parse(json("story_bible_example.json"));
+const bible = (): StoryBible => StoredStoryBibleSchema.parse(json("story_bible_example.json"));
 const ctx = (state: StoryState | null = null): StoryContext => ({ bible: bible(), state });
 const NOW = new Date("2026-10-12T00:00:00Z");
 const validateEp = (obj: unknown, story: StoryContext | null = ctx()) => validateDocument(obj, { now: NOW, story });
@@ -39,14 +39,28 @@ describe("fixtures", () => {
     const r = validateText(fixture("episode_full.json"), { now: NOW, story: ctx() });
     expect(r.errors).toEqual([]);
     const ep = r.episode!;
-    expect(ep.segments).toHaveLength(10);
+    expect(ep.segments).toHaveLength(13);
     expect(ep.crop_policy.min_hold_sec).toBe(1.2);
     expect(ep.voice.style_notes).toBe("calm, low, unhurried");
     expect(ep.story.scene_bible.locations.find((l) => l.id === "rooftop")!.camera_angles.map((a) => a.id)).toEqual(["a", "b", "c"]);
     expect(r.continuity?.end.locations).toEqual({ rooftop: "barricaded", apartment: "ransacked" });
     expect(r.continuity?.end.world).toMatchObject({ day: 1, weather: "rain", water_gallons: 4990 });
     expect(r.continuity?.end.outfits.protagonist).toBe("bandaged");
-    expect(r.continuity?.end.introduced_characters).toEqual(["protagonist"]);
+    expect(r.continuity?.end.introduced_characters).toEqual(["dex", "mara", "protagonist"]);
+    expect(r.continuity?.end.character_status).toMatchObject({
+      protagonist: { status: "with_protagonist" },
+      mara: { status: "with_protagonist" },
+      dex: { status: "missing", last_seen_episode: null },
+    });
+  });
+
+  it("2.0 documents are still accepted", () => {
+    const b = json("story_bible_example.json");
+    b.schema_version = "2.0";
+    expect(validateDocument(b).ok).toBe(true);
+    const ep = json("episode_minimal.json");
+    ep.schema_version = "2.0";
+    expect(validateEp(ep).errors).toEqual([]);
   });
 
   it("an episode alone is checked without continuity until its story is known", () => {
@@ -162,9 +176,17 @@ describe("continuity", () => {
   });
 
   it("rejects characters before their first episode unless they are cameos", () => {
+    const b = bible();
+    b.characters.find((c) => c.id === "mara")!.first_appears_episode = 2;
     const ep = json("episode_full.json");
+    ep.segments = ep.segments.slice(0, 9).concat({ ...ep.segments.at(-1), order: 10 });
+    ep.character_status_changes = [];
+    ep.chapters = ep.chapters.slice(0, 3);
+    ep.thumbnail.characters_present = ["protagonist"];
+    ep.segments[8].scene.characters_present.push({ character_id: "mara", pose_or_action: "a silhouette behind the door", position_in_frame: "background", cameo: true });
+    expect(errorText(validateEp(ep, { bible: b, state: null }))).toBe("");
     ep.segments[8].scene.characters_present[1].cameo = false;
-    expect(errorText(validateEp(ep))).toMatch(/mara first appears in episode 2/);
+    expect(errorText(validateEp(ep, { bible: b, state: null }))).toMatch(/mara first appears in episode 2/);
   });
 
   it("rejects unknown outfits, props, angles and locations", () => {
@@ -318,7 +340,7 @@ describe("prompt assembly", () => {
 
   it("skips reuse segments and cards without image backgrounds", () => {
     const ids = buildImageItems(full).map((i) => i.segment_id);
-    expect(ids).toEqual(["seg_002", "seg_003", "seg_004", "seg_006", "seg_008", "seg_009"]);
+    expect(ids).toEqual(["seg_002", "seg_003", "seg_004", "seg_006", "seg_008", "seg_009", "seg_010", "seg_011", "seg_012"]);
     const seg7 = full.segments.find((s) => s.id === "seg_007")!;
     expect(pictureSourceSegmentId(full, seg7)).toBe("seg_004");
   });
@@ -337,6 +359,7 @@ describe("prompt assembly", () => {
       "char/protagonist/beanie",
       "char/protagonist/raincoat",
       "char/mara/default",
+      "char/dex/default",
     ]);
     const plate = masters.find((m) => m.master_key === "loc/rooftop/clear/a")!;
     expect(plate.final_prompt).toContain("no people");

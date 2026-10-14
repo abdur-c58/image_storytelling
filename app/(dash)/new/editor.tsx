@@ -232,23 +232,41 @@ function IssueList({
   issues: ValidationIssue[];
   onJump: (i: ValidationIssue) => void;
 }) {
+  const groups = CATEGORY_ORDER.map((c) => [c, issues.filter((i) => (i.category ?? "general") === c)] as const).filter(
+    ([, list]) => list.length > 0,
+  );
   return (
     <div className="card flex max-h-[40vh] flex-col gap-1 overflow-auto text-xs">
       <span className={`eyebrow ${tone}`}>{title}</span>
-      <div className="mt-2 flex flex-col gap-0.5">
-        {issues.map((issue, i) => (
-          <button
-            type="button"
-            key={i}
-            onClick={() => onJump(issue)}
-            className="rounded-lg px-2 py-1 text-left transition-colors hover:bg-panel-hover"
-            title={issue.path_text}
-          >
-            {issue.line ? <span className="font-mono text-muted">L{issue.line}:{issue.column} </span> : null}
-            {issue.message}
-          </button>
-        ))}
-      </div>
+      {groups.map(([category, list]) => (
+        <div key={category} className="mt-2 flex flex-col gap-0.5">
+          {groups.length > 1 && (
+            <span className="px-2 text-[0.65rem] uppercase tracking-wide text-muted">
+              {CATEGORY_LABEL[category]} ({list.length})
+            </span>
+          )}
+          {list.map((issue, i) => (
+            <button
+              type="button"
+              key={i}
+              onClick={() => onJump(issue)}
+              className="rounded-lg px-2 py-1 text-left transition-colors hover:bg-panel-hover"
+              title={issue.path_text}
+            >
+              {issue.line ? <span className="font-mono text-muted">L{issue.line}:{issue.column} </span> : null}
+              {issue.message}
+            </button>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
+
+const CATEGORY_ORDER = ["general", "continuity", "voice", "crop"] as const;
+const CATEGORY_LABEL: Record<(typeof CATEGORY_ORDER)[number], string> = {
+  general: "Document",
+  continuity: "Continuity",
+  voice: "Voice and dialogue",
+  crop: "Crops",
+};

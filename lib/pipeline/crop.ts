@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { createAsset, markAssetReady, readyAssetMap } from "@/lib/assets";
 import { newId, sha256Hex } from "@/lib/crypto";
-import { applyCropPlans, type SegmentCropSetting, type Timeline } from "@/lib/crop/timeline";
+import { applyCropPlans, type LineTiming, type SegmentCropSetting, type Timeline } from "@/lib/crop/timeline";
 import type { Db } from "@/lib/db";
 import { projects, segments } from "@/lib/db/schema";
 import { isResolvedV2 } from "@/lib/episode/resolve";
@@ -32,7 +32,10 @@ export async function planCrops(db: Db, projectId: string): Promise<boolean> {
   const settings: Record<string, SegmentCropSetting> = Object.fromEntries(
     segRows.map((r) => [r.segmentId, { enabled: r.cropEnabled, salt: r.cropSalt }]),
   );
-  const next = applyCropPlans(timeline, project.episode, { projectSeed: project.cropSeed || project.id, settings });
+  const lineTimings: Record<string, LineTiming[]> = Object.fromEntries(
+    segRows.filter((r) => (r.lineTimings as LineTiming[]).length).map((r) => [r.segmentId, r.lineTimings as LineTiming[]]),
+  );
+  const next = applyCropPlans(timeline, project.episode, { projectSeed: project.cropSeed || project.id, settings, lineTimings });
   const bytes = new TextEncoder().encode(JSON.stringify(next));
   const asset = await createAsset(db, {
     projectId,

@@ -1,4 +1,4 @@
-# Story and episode JSON contract (schema 2.0, for the script writer)
+# Story and episode JSON contract (schema 2.1, for the script writer)
 
 Give this file to Claude (or any writer) together with:
 
@@ -14,16 +14,16 @@ The site validates every field and checks **continuity** against the stored stor
 |---|---|---|
 | `story_bible` | Characters, places, world variables, art style, voice/crop defaults. | Once per story (re-paste to add things). |
 | `episode` | One video: segments with scenes, thumbnail, YouTube metadata. Refers to the story by `story_id`. | Every episode. |
-| `bundle` | `{ "schema_version": "2.0", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
+| `bundle` | `{ "schema_version": "2.1", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
 
-Every document starts with `"schema_version": "2.0"` and its `doc_type`. A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
+Every document starts with `"schema_version": "2.1"` and its `doc_type`. 2.0 documents are still accepted (they have no dialogue, so every segment is narration). A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
 
 ## Output rules
 
 1. Output **one JSON object only**: no Markdown fences, no comments, no trailing commas.
 2. Ids (`story_id`, character, location, state, angle, prop, variable, segment and sfx ids) use only letters, digits, `_` and `-`. Use `seg_001`, `seg_002`, … for segments and `seg_004_sfx_1` for cues; ids are unique within their list.
 3. Segment `order` values are 1, 2, 3, … and are the play order.
-4. Never put `<` or `>` in the YouTube title or description, and never `[` or `<` in `narration`.
+4. Never put `<` or `>` in the YouTube title or description, and never `[` or `<` in `narration` or a line's `text`.
 5. Unknown keys are kept but ignored; misspelt keys silently do nothing, so match the names below exactly.
 
 ---
@@ -31,8 +31,8 @@ Every document starts with `"schema_version": "2.0"` and its `doc_type`. A 1.0 e
 ## Story bible
 
 ```text
-schema_version, doc_type, story_id, story_title, total_episodes_planned?, channel, style_bible, characters[],
-scene_bible { world_variables[], locations[] }, defaults? { voice, audio, render, crop_policy }, automation?
+schema_version, doc_type, story_id, story_title, total_episodes_planned?, channel, narrator?, style_bible, characters[],
+character_groups?, scene_bible { world_variables[], locations[] }, defaults? { voice, audio, render, crop_policy }, automation?
 ```
 
 Once a story has episodes, a re-pasted bible may only **add** things (nothing removed), so old episodes stay valid.
@@ -42,21 +42,46 @@ Once a story has episodes, a re-pasted bible may only **add** things (nothing re
 - `channel_name`: the YouTube channel; the default for every episode's `youtube.channel_name`.
 - `recurring_cameo`: `{ description, rule, min_segments_per_episode? }`, e.g. a small mascot hidden in the frame. Segments opt in with `scene.include_channel_cameo: true`; fewer than `min_segments_per_episode` gives a warning.
 
+### narrator
+
+`{ pov, pov_character_id?, voice? }`
+
+- `pov`: `second_person` (default, "you"), `first_person` ("I") or `third_person`. The site warns when narration drifts: "I/me" in a second-person story, "you" in a first-person one, or the POV character's own name in the narration.
+- `pov_character_id`: the character the narrator is (for `first_person` / `second_person`). In second person that character is expected in most pictures (warning only).
+- `voice`: `{ voice_id, model, speed, gain_db }`; empty fields fall back to `defaults.voice`.
+
 ### style_bible (drives every image)
 
 - `global_style_prompt`: the art style only (medium, line weight, palette, mood words). Same text for the whole story.
 - `negative_prompt`: things to avoid in every image (`text, watermark, photorealistic`).
 - `aspect_ratio` `16:9`, `target_resolution` `1920x1080`, `palette_notes` (free text).
 - `source_image_min_width` (default 2560): pictures narrower than this are upscaled and flagged, because crops zoom in. Under 1280 px is rejected.
+- `multi_character_negative`: added to the negative prompt whenever 2+ characters share a picture (default: merged faces, duplicate faces, fused bodies, extra limbs, …).
+- `flashback_treatment_prompt`: appended to flashback pictures (default: a faded sepia memory look).
 
 ### characters[]
 
-`{ id, name, role, visual_description, outfit_states[], first_appears_episode }`
+`{ id, name, role, scope?, visual_description, outfit_states[], first_appears_episode, voice?, voice_group?, initial_status? }`
 
 - `role`: `protagonist`, `ally`, `antagonist`, `cameo` or `extra`.
 - `visual_description`: **fixed** traits only (body, face, hair). One sentence.
 - `outfit_states[]`: `{ id, description }`, e.g. `beanie`: "a mustard yellow beanie and a grey scarf". The first is the default. Scenes pick one with `outfit_state_id`.
 - `first_appears_episode`: using a character earlier is an error (unless marked `cameo`).
+- `voice`: `{ voice_id, model?, speed?, gain_db?, style_notes?, pronunciation_overrides? }`. **A character without a `voice` cannot speak lines.** Give each speaker a different `voice_id`; two speakers sharing one is a warning unless both have the same `voice_group` (a deliberate choice, e.g. twins).
+- `initial_status`: where the character stands at the start of the story (default `with_protagonist`; see **Character status**).
+- `scope`: `story` (default) or `channel`. A **channel** character is a recurring member of the channel's cast: the first story that uses it registers it, and later stories reuse its look, voice and approved masters.
+
+**Using a channel character in another story.** Don't redefine it; reference it:
+
+```json
+{ "ref": "mara", "story_outfit_states": [{ "id": "parka", "description": "a red parka with the hood down" }], "first_appears_episode": 1 }
+```
+
+The site fills in the rest from the channel cast. `story_outfit_states` are extra outfits for this story only. A full definition whose description, references or voice differ from the channel cast is an error that lists the differences. A story character can be promoted to the channel from the Story page, never the other way round.
+
+### character_groups[]
+
+`{ id, character_ids[] (2+), description? }`: characters often drawn together (siblings, a couple). Each group gets its own reference picture of them side by side, used whenever all of them share a picture. Only add groups that really recur.
 
 ### scene_bible.world_variables[]
 
@@ -77,7 +102,7 @@ Once a story has episodes, a re-pasted bible may only **add** things (nothing re
 - `states[]`: `{ id, description, is_base?, derived_from? }`. Exactly one `is_base`. States are how the place changes over the story (`clear` → `barricaded`).
 - `key_props[]`: `{ id, description, default_position }`. Scenes list the ones in view in `props_in_frame`.
 
-**Masters.** For every location × state × camera angle, and every character × outfit, the bot makes one reference picture ("master"). You approve them on the Story page. Approved masters are attached to every episode picture of that place and those characters, which keeps the look consistent. A location with 3 states and 3 angles is 9 masters, so add states and angles deliberately.
+**Masters.** For every location × state × camera angle, every character × outfit, and every character group, the bot makes one reference picture ("master"). You approve them on the Story page. Approved masters are attached to every episode picture of that place and those characters, which keeps the look consistent. A location with 3 states and 3 angles is 9 masters, so add states and angles deliberately.
 
 ### defaults
 
@@ -92,7 +117,7 @@ Once a story has episodes, a re-pasted bible may only **add** things (nothing re
 ## Episode
 
 ```text
-schema_version, doc_type, story_id, series, segments[], thumbnail, youtube, chapters?, overrides?, bible_additions?, automation?
+schema_version, doc_type, story_id, series, segments[], character_status_changes?, thumbnail, youtube, chapters?, overrides?, bible_additions?, automation?
 ```
 
 ### series
@@ -106,9 +131,10 @@ schema_version, doc_type, story_id, series, segments[], thumbnail, youtube, chap
 | `id`, `order`, `type` | `type` is `illustration`, `title_card`, `infographic` or `reuse_image`. |
 | `narration` | Clean text that is captioned and checked against what Whisper hears. **No tags.** Aim for 8–40 words; over 60 gives a warning. |
 | `tts_text` | The narration with Fish voice tags (see **Voice direction**). With the tags removed it must equal `narration`. Expected on segments of 3+ sentences. |
+| `lines[]` | Instead of `narration`: the segment as narrator and dialogue lines (see **Dialogue**). Use one or the other, never both. |
 | `caption_text` | Optional caption override. |
 | `delivery` | Optional acting note (≤120 chars), e.g. `"whispered, tense"`. |
-| `sentence_split_override` | Optional `string[]` when the automatic sentence split is wrong; must join back to the narration. |
+| `sentence_split_override` | Optional `string[]` when the automatic sentence split is wrong; must join back to the narration. Not allowed with `lines`. |
 | `silent` | `true` for cards with no voice. |
 | `min_duration_sec` | Hold the picture at least this long. |
 | `transition_out` | `cut` (default), `crossfade_150ms` or `fade_black`. |
@@ -129,8 +155,12 @@ You never write timestamps; the worker measures them.
 | `props_in_frame[]` | Prop ids of this location that are visible. |
 | `state_changes[]` | `{ location_id, from_state_id, to_state_id, cause, persist }`. Something happens to a place: the door gets barricaded. `persist: true` carries the new state into later segments and episodes; `false` is a one-off. Later scenes of that location must use the new state. |
 | `include_channel_cameo` | Puts the channel's recurring cameo in this picture. |
+| `timeframe` | `present` (default), `flashback` or `imagined`. Flashback and imagined scenes may show absent or dead characters, other outfits and old location states, and change nothing in the story state. |
+| `visual_treatment` | `flashback_tint` or `none`. Defaults to `flashback_tint` for flashbacks, `none` otherwise. |
 
 `reuse_image` segments inherit the scene of the segment they reuse.
+
+With 2+ characters in a picture, the prompt names each one with their description, outfit and position, says how many different people there are, and adds the multi-character negative. Give each character a distinct `position_in_frame`.
 
 ### image
 
@@ -153,7 +183,7 @@ The renderer slowly crops into each picture and back out, driven by sentences:
 - Moves happen in the gap between sentences, so a move never lands mid-word.
 - Amounts: typically 4–10%, never more than 20%.
 
-So the way you break narration into sentences decides the camera rhythm. Defaults come from `crop_policy`:
+So the way you break narration into sentences decides the camera rhythm. In dialogue segments, a change of speaker is a preferred place for a crop to start or end, and a crop on an on-screen speaker's line leans toward that character (with probability `focal_bias`). Add a `focal_points` entry labelled with the character id to say exactly where their face is. Defaults come from `crop_policy`:
 
 `enabled, max_crop (≤ 0.20), typical_max_crop, min_crop, prob_typical, crop_measure ("linear" | "area"), sentences_before_crop ({"2": 0.8, "1": 0.2}), hold_sentences, min_hold_sec, transition ("ease" | "cut"), transition_ms, easing, focal_bias, avoid_repeat_region, end_on_full_frame, seed_mode ("per_project" | "fixed"), seed`.
 
@@ -164,6 +194,45 @@ So the way you break narration into sentences decides the camera rhythm. Default
 ### overrides
 
 `{ voice?, audio?, render?, crop_policy? }`: any subset of fields; everything else comes from the story's `defaults`.
+
+### character_status_changes[] (who is where)
+
+The story tracks each character's status: `with_protagonist`, `separated`, `missing`, `captive`, `returned`, `unknown` or `deceased`. The "Context for episode N" block lists the current statuses. Change one with:
+
+`{ character_id, to_status, at_segment_id, cause, story_override? }`
+
+- A change to an absent status (`separated`, `missing`, `captive`, `deceased`) applies **after** `at_segment_id`, so that segment can still show the parting. Any other change (a return) applies **at** that segment.
+- An absent character can't be in `characters_present` or speak on screen in a `present` scene. The exceptions: a line over `radio` or `phone`, a `source: "written"` line (a note or message), or a `flashback` / `imagined` scene.
+- `deceased` is final. Bringing someone back needs `story_override: true` and is still flagged.
+
+---
+
+## Dialogue (`lines[]`)
+
+A segment can be told as lines instead of one narration. Each line is voiced with its speaker's voice.
+
+| Field | Notes |
+|---|---|
+| `id` | Unique in the episode, e.g. `seg_004_l1`. |
+| `speaker` | `narrator` or a character id that has a `voice`. |
+| `text` | What is said and captioned. Same rules as `narration`: no tags, and **no quote marks** (warning). |
+| `tts_text` | Optional, with voice tags. Tags removed, it must equal `text`. A pause tag at the very end becomes extra silence before the next line. |
+| `voice_effect` | `none` (default), `radio`, `phone`, `muffled`, `echo` or `memory`. |
+| `on_screen` | Default `true` for characters. `false` for a voice from off frame; the crop then doesn't lean toward them. |
+| `source` | `spoken` (default) or `written` (a note or text message read aloud). |
+| `caption_text` | Optional caption override. |
+
+Gaps are automatic: 350 ms when the narrator hands over to a character or back (`narrator_to_dialogue_gap_ms`), 220 ms between two characters (`dialogue_reply_gap_ms`), the normal sentence pause when the same speaker continues. Every line is levelled to the same loudness, so don't use tags to make one voice louder.
+
+```json
+"lines": [
+  { "id": "seg_006_l1", "speaker": "narrator", "text": "The radio crackled at midnight." },
+  { "id": "seg_006_l2", "speaker": "mara", "text": "Anyone there? We have water.", "voice_effect": "radio", "on_screen": false },
+  { "id": "seg_006_l3", "speaker": "protagonist", "tts_text": "<whisper>Don't answer.</whisper> [pause]", "text": "Don't answer." }
+]
+```
+
+Keep dialogue short. One to three lines per character per segment reads best; long speeches belong to the narrator.
 
 ---
 
@@ -235,6 +304,7 @@ Only commercially licensed clips are used (the channel is monetised): CC0, publi
 | `image_prompt` | One strong subject, high contrast, empty space for text. **No text in the image.** |
 | `scene` | Optional `{ location_id, state_id, camera_angle_id, world_state? }`: adds the location and its masters as references. |
 | `characters_present` | Character ids. |
+| `pairing_layout` | With 2+ characters: `side_by_side`, `foreground_background` or `split`. |
 | `text_layers[]` | Up to 4: `{ text, style, position, max_font_size_px }`. Styles `impact_white_black_outline`, `impact_yellow_black_outline`, `red_badge`, `plain_white`. Avoid `bottom_right`. |
 | `alt_variants` | 0–2 extra base images. |
 
@@ -265,13 +335,17 @@ Only commercially licensed clips are used (the channel is monetised): CC0, publi
 
 ## Writing checklist
 
-- [ ] `schema_version: "2.0"` and the right `doc_type`; the episode's `story_id` matches the story.
+- [ ] `schema_version: "2.1"` and the right `doc_type`; the episode's `story_id` matches the story.
+- [ ] Channel characters from earlier stories are `{ "ref": id }`, not redefined.
+- [ ] Every speaker has a `voice`; speakers don't share a `voice_id` unless they share a `voice_group`.
+- [ ] Narration matches the `narrator.pov` ("you" in second person, "I" in first person).
+- [ ] Absent or dead characters only appear in flashbacks, over radio/phone, or in written notes; status changes are in `character_status_changes`.
 - [ ] Every `illustration` has a `scene` and an `image.prompt` (action only); every card has a `remotion` block.
 - [ ] Scene states follow the story: a location's state only changes through a `state_changes` entry.
 - [ ] `world_state` is set for every variable that applies to the location, and it never goes backwards.
 - [ ] No character appears before their `first_appears_episode`; outfits exist.
 - [ ] Anything new is in `bible_additions`.
-- [ ] `tts_text` minus its tags equals `narration`; at most 8 tags per 100 words.
+- [ ] `tts_text` minus its tags equals `narration` (or the line's `text`); at most 8 tags per 100 words; no quote marks in lines.
 - [ ] Sentence breaks are where the camera should move; one-sentence segments stay full frame.
 - [ ] `at_phrase` text appears word-for-word in the narration; no text requested inside any image.
 - [ ] The description contains `{{chapters}}` and `{{sfx_credits}}`.

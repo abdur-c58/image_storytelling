@@ -36,6 +36,22 @@ export const stories = pgTable("stories", {
   updatedAt: updatedAt(),
 }).enableRLS();
 
+/** Recurring cast shared by every story on the channel (schema 2.1 `scope: "channel"`). */
+export const channelCharacters = pgTable("channel_characters", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Full character definition (outfits grow as stories add them). */
+  definition: jsonb("definition").notNull(),
+  /** style_bible.reference_assets entries its reference_image_ids point at. */
+  referenceAssets: jsonb("reference_assets").notNull().default(sql`'[]'::jsonb`),
+  /** The story that first defined it; only that story may change the definition. */
+  originStoryId: text("origin_story_id").notNull(),
+  /** master_key (char/<id>/<outfit>) → { story_id, asset_id } of an approved sheet, reused by later stories. */
+  masters: jsonb("masters").notNull().default(sql`'{}'::jsonb`),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}).enableRLS();
+
 /** Location plates and character sheets a story's images are anchored to. */
 export const storyMasters = pgTable(
   "story_masters",
@@ -121,6 +137,8 @@ export const segments = pgTable(
     endSec: doublePrecision("end_sec"),
     /** Whisper QA: { wer, transcript, flagged } */
     qa: jsonb("qa").notNull().default(sql`'{}'::jsonb`),
+    /** Per-line windows inside this segment's voice file: [{ line_id, speaker, start, end, voice_effect }] (seconds). */
+    lineTimings: jsonb("line_timings").notNull().default(sql`'[]'::jsonb`),
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.segmentId] })],
@@ -294,6 +312,7 @@ export const usageEvents = pgTable(
 
 export type StoryRow = typeof stories.$inferSelect;
 export type StoryMasterRow = typeof storyMasters.$inferSelect;
+export type ChannelCharacterRow = typeof channelCharacters.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type SegmentRow = typeof segments.$inferSelect;
 export type AssetRow = typeof assets.$inferSelect;

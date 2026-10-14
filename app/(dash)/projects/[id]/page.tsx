@@ -9,7 +9,9 @@ import type { SentenceTiming } from "@/lib/crop/sentences";
 import type { StoryStateSnapshot } from "@/lib/episode/continuity";
 import type { PromptPart } from "@/lib/episode/prompt";
 import { isResolvedV2 } from "@/lib/episode/resolve";
-import type { Episode } from "@/lib/episode/schema";
+import type { LineTiming } from "@/lib/crop/timeline";
+import { NARRATOR } from "@/lib/episode/constants";
+import type { Episode, Line, Segment } from "@/lib/episode/schema";
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
 import type { CropSummary } from "@/lib/pipeline/crop";
@@ -86,6 +88,8 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
   );
   const voiceUrls = new Map(await Promise.all(req.spoken.map(async (sid) => [sid, await url(assetKeys.voice(sid))] as const)));
   const segById = new Map(ep.segments.map((s) => [s.id, s]));
+  const speakerNames: Record<string, string> = { [NARRATOR]: "Narrator" };
+  if (v2) for (const c of ep.story.characters) speakerNames[c.id] = c.name;
   const warnings = project.warnings as ValidationIssue[];
   const activeTasks = taskRows.filter((t) => t.status === "queued" || t.status === "leased");
   const deadTasks = taskRows.filter((t) => t.status === "dead");
@@ -265,7 +269,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
             <tr>
               <th className="w-48 py-1">Picture</th>
               <th>Segment</th>
-              <th>Narration</th>
+              <th>Lines</th>
               <th>Timing</th>
               {v2 && <th>Crops</th>}
               <th>QA</th>
@@ -300,7 +304,11 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                     {row.imageAttempts > 0 && <div className="text-warn">image retries: {row.imageAttempts}</div>}
                   </td>
                   <td className="max-w-md pr-2">
-                    <p>{row.narration || <span className="text-muted">(silent)</span>}</p>
+                    {seg && isDialogue(seg) ? (
+                      <LineList lines={seg.lines!} timings={row.lineTimings as LineTiming[]} voiceUrl={voice ?? null} names={speakerNames} />
+                    ) : (
+                      <p>{row.narration || <span className="text-muted">(silent)</span>}</p>
+                    )}
                     {row.finalPrompt && (
                       <details className="mt-1 text-muted">
                         <summary className="cursor-pointer">{parts.length ? "prompt inspector" : "final prompt"}</summary>
@@ -464,11 +472,54 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
 
 const hasPicture = (type: string) => type !== "title_card" && type !== "infographic";
 
+/** Worth showing line by line: more than one line, or anyone but the narrator speaking. */
+const isDialogue = (seg: Segment) => !!seg.lines && (seg.lines.length > 1 || seg.lines.some((l) => l.speaker !== NARRATOR));
+
+function LineList({ lines, timings, voiceUrl, names }: { lines: Line[]; timings: LineTiming[]; voiceUrl: string | null; names: Record<string, string> }) {
+  const byId = new Map(timings.map((t) => [t.line_id, t]));
+  return (
+    <ol className="flex flex-col gap-1.5">
+      {lines.map((line) => {
+        const t = byId.get(line.id);
+        return (
+          <li key={line.id} className="flex flex-col gap-0.5">
+            <div className="flex flex-wrap items-center gap-1">
+              <SpeakerChip speaker={line.speaker} name={names[line.speaker] ?? line.speaker} />
+              {line.voice_effect !== "none" && (
+                <span className="chip text-info" title="voice effect">
+                  {line.voice_effect}
+                </span>
+              )}
+              {line.speaker !== NARRATOR && !line.on_screen && <span className="chip text-muted">off screen</span>}
+              {line.source === "written" && <span className="chip text-muted">written</span>}
+              {t && <span className="font-mono text-muted">{(t.end - t.start).toFixed(1)}s</span>}
+            </div>
+            <p>{line.text}</p>
+            {voiceUrl && t && <audio src={`${voiceUrl}#t=${t.start.toFixed(2)},${t.end.toFixed(2)}`} controls preload="none" className="h-7 w-full" />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function SpeakerChip({ speaker, name }: { speaker: string; name: string }) {
+  let hash = 0;
+  for (const ch of speaker) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const color = speaker === NARRATOR ? undefined : `hsl(${hash % 360} 65% 62%)`;
+  return (
+    <span className="chip font-medium" style={color ? { color, borderColor: color } : undefined}>
+      {name}
+    </span>
+  );
+}
+
 function StateSummary({ snapshot }: { snapshot: StoryStateSnapshot }) {
   const rows: [string, string][] = [
     ...Object.entries(snapshot.locations).map(([k, v]): [string, string] => [`location ${k}`, v]),
     ...Object.entries(snapshot.world).map(([k, v]): [string, string] => [k, String(v)]),
     ...Object.entries(snapshot.outfits).map(([k, v]): [string, string] => [`outfit ${k}`, v]),
+    ...Object.entries(snapshot.character_status ?? {}).map(([k, v]): [string, string] => [`status ${k}`, v.status]),
   ];
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">

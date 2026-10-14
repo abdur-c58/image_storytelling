@@ -104,3 +104,98 @@ The configured model is `drama-3-preview` (the server's `FISH_TTS_MODEL`).
 8. **When story_state advances.** "After each successful episode" is taken to mean **published**. Unpublished test runs can be committed manually with **Commit story state** on the project page. An episode validates against the state left by the highest committed episode before it, so re-pasting an older episode still validates correctly.
 9. **Existing v1 projects** in the database keep working for viewing and deleting, and they render without crops. New v1 pastes are rejected with a convert option.
 10. **`STORY_DRAFT`** is never stored: a story bible is only saved once it validates, so stories start at `STORY_VALIDATED`. I also added `MASTERS_REVIEW` (all masters generated, waiting for approval), which sits between the two states in the brief.
+
+---
+
+# Schema 2.1 (dialogue, recurring cast, character status)
+
+`schema_version` is now `"2.1"`. Documents marked `"2.0"` are still accepted (2.1 only adds optional fields); new and exported documents use `"2.1"`.
+
+## 2.1-1. Story bible
+
+| Field | Status | Notes |
+|---|---|---|
+| `narrator` | new | `{ pov, pov_character_id, voice }`. `pov`: `second_person` (default) \| `first_person` \| `third_person`. `voice`: `{ voice_id, model, speed, gain_db }`; empty fields fall back to `defaults.voice`. |
+| `characters[].scope` | new | `"story"` (default) \| `"channel"`. |
+| `characters[]` as `{ "ref": id, "story_outfit_states": [...] }` | new | Uses a channel character from the registry. Optional `first_appears_episode` and `initial_status` may be given with the ref. |
+| `characters[].voice` | new | `{ provider, voice_id, model, speed, gain_db, style_notes, pronunciation_overrides }`, nullable. Needed to speak dialogue. |
+| `characters[].voice_group` | new | Optional label. Two speakers with the same `voice_id` get a warning unless they share a `voice_group` (declared on purpose). |
+| `characters[].initial_status` | new (my addition) | Status at the start of the story, default `with_protagonist`. The brief doesn't say where the first status comes from. |
+| `character_groups[]` | new (my addition) | `{ id, character_ids (2+), description }`. Each group gets a `generate_character_group_master` reference picture. The brief asks for group masters but not how groups are declared. |
+| `style_bible.multi_character_negative` | new | Negative-prompt line added when 2+ characters share a picture. Default: `merged faces, duplicate faces, fused bodies, extra limbs, the same face on two people, twins`. |
+| `style_bible.flashback_treatment_prompt` | new (my addition) | Text appended for `visual_treatment: "flashback_tint"`. Default: `shown as a memory: faded warm sepia tint, soft hazy edges, gentle vignette`. |
+
+## 2.1-2. Channel cast registry
+
+New table `channel_characters` (`id`, `name`, `definition`, `reference_assets`, `origin_story_id`, `masters`, timestamps).
+
+- A `scope: "channel"` character is added to the registry the first time a story using it is saved.
+- Later stories reference it with `{ "ref": id }`. The site expands the ref from the registry before validating: `visual_description`, `reference_image_ids` (and the reference assets they point at) and `voice` come from the registry, and `story_outfit_states` are appended as story-only outfits.
+- Re-defining a channel character in full with a different `visual_description`, references or voice is an error that lists each difference. Only new outfit states are allowed.
+- A `story` character can be promoted to `channel` (Story page button). Re-pasting a bible may change `story` → `channel` but never the reverse.
+- Approved character masters of a channel character are reused (copied) by later stories, so the same face carries across stories.
+
+## 2.1-3. Segments: `lines[]`
+
+| Field | Status | Notes |
+|---|---|---|
+| `segments[].lines` | new | Nullable. A segment has either `narration` (+ `tts_text`) **or** `lines`, not both. |
+| `lines[].id` | new | Unique across the episode. |
+| `lines[].speaker` | new | `"narrator"` or a character id with a `voice`. |
+| `lines[].text` / `tts_text` | new | Same rules as `narration` / `tts_text` in 2.0. Quote marks in `text` are a warning. |
+| `lines[].voice_effect` | new | `none` \| `radio` \| `phone` \| `muffled` \| `echo` \| `memory`. |
+| `lines[].on_screen` | new | Default `true` for characters, ignored for the narrator. Biases crops toward the speaker. |
+| `lines[].source` | new (my addition) | `"spoken"` (default) \| `"written"` (a note or message read aloud). `"written"` is the "off-screen note/message" exception from the brief, which had no field for it. |
+| `lines[].caption_text` | new | Optional caption override per line. |
+| `sentence_split_override` | restricted | Only allowed with `narration`, not with `lines`. |
+
+The site normalises `narration` into one narrator line, so everything downstream reads `lines`. The resolved episode still fills `narration`/`tts_text` with the joined lines for the parts that only need the whole text: Whisper matching, captions, word-error rate.
+
+## 2.1-4. Voice
+
+| Field | Status | Notes |
+|---|---|---|
+| `voice.narrator_to_dialogue_gap_ms` | new | Default 350. Gap when the speaker changes between narrator and a character. |
+| `voice.dialogue_reply_gap_ms` | new | Default 220. Gap between two different characters. Same speaker continuing uses `pause_between_sentences_ms`. |
+| Trailing pause tag on a line | rule | Removed from the text sent to Fish, and its duration is **added** to the gap after the line. |
+
+Each line is synthesised with its speaker's voice and normalised to `audio.voice_target_lufs + gain_db`. Then the effect chain is applied and the line is normalised again. Effect presets (ffmpeg filter chains) live in the worker's `voice_effects.json`, so you can tune them without touching the site. The voice stage still uploads one file per segment and reports each line's start and end inside it. Those line times go into `timeline.json` and drive per-line players and timing.
+
+## 2.1-5. Character status (story state)
+
+`story_state` snapshots gain `character_status: { [id]: { status, last_known_location_id, last_seen_episode, outfit_state_id } }`. Statuses: `with_protagonist`, `separated`, `missing`, `captive`, `returned`, `unknown`, `deceased`.
+
+Episodes change a status with `character_status_changes: [{ character_id, to_status, at_segment_id, cause, story_override }]`.
+
+- **Timing (my interpretation).** A change to an absent status (`separated`, `missing`, `captive`, `deceased`) takes effect **after** its segment, so that segment can still show the parting. Any other change takes effect **at** its segment, so the return can be shown.
+- **Absent characters.** An absent character may not be in `characters_present`, or speak, in a `present` segment. The exceptions: a line with `voice_effect` `radio` or `phone`, a line with `source: "written"`, or a segment with `scene.timeframe` `flashback` or `imagined`.
+- **`deceased`.** Can only change back with `story_override: true`.
+
+## 2.1-6. Scenes
+
+| Field | Status | Notes |
+|---|---|---|
+| `scene.timeframe` | new | `present` (default) \| `flashback` \| `imagined`. Non-present scenes skip location-state, world-variable, outfit and status persistence, and don't change the story state. |
+| `scene.visual_treatment` | new | `flashback_tint` \| `none`. Defaults to `flashback_tint` for flashbacks and `none` otherwise. |
+| `thumbnail.pairing_layout` | new | `side_by_side` \| `foreground_background` \| `split`, used when the thumbnail has 2+ characters. |
+
+## 2.1-7. Prompts and masters
+
+- Pictures with 2+ characters get an `Exactly N different people` part, each character's description, outfit and frame position, and `style_bible.multi_character_negative` added to the negative prompt.
+- New bot task `generate_character_group_master` (one per batch of groups). Group masters appear in the same Story gallery, gate episode images the same way, and are sent as an extra reference whenever all of a group's members share a picture.
+
+## 2.1-8. Crop engine
+
+- Sentences are built line by line and carry `line_id`, `speaker` and `on_screen`. When line times are known, each line's sentences are timed inside that line's window.
+- A speaker change is a preferred boundary: the crop start moves by up to one sentence to land on one, and so does the return to full frame.
+- A crop that starts on an on-screen speaker's sentence is centred on that speaker with probability `focal_bias`. The point is a `focal_points` entry labelled with the character id, else the character's `position_in_frame` (left 0.3, center 0.5, right 0.7, background 0.5; y 0.45).
+- All other limits are unchanged.
+
+## 2.1 conflicts with the existing implementation, and how I resolved them
+
+1. **Whisper "per line".** The worker runs Whisper once per episode, so the model loads only once. Per-line timing comes from the line windows the voice stage measured exactly (it builds the segment file itself). Words are assigned to lines by those windows, then aligned per line. The result is the same as running Whisper per line, without reloading the model for every line.
+2. **One voice file per segment.** Mix, align, SFX and render all work per segment, so the voice stage still writes `voice/<segment>`. Line audio lives inside it, and the per-line player plays that file between the line's start and end.
+3. **Loudness.** Lines are normalised one by one. The mix's voice-stem normalisation is linear (one gain for the whole stem), so the balance between speakers is kept. Clips under 1 second are measured with an RMS-based estimate, because the integrated LUFS measurement needs at least 400 ms blocks and is unreliable on short clips.
+4. **Second-person visual rule.** As written, the brief warns when the POV character is **not** in `characters_present`. That fits a style where "you" are drawn in frame (as in the fixtures), so I implemented it as written. It is a warning, never an error.
+5. **Narrator name lint.** A POV character named "You" (as in the example story) would trip on every line, so names that are pronouns (`you`, `your`, `yourself`) are skipped.
+6. **Tag whitelist per model.** Character lines use the episode's `voice.tag_whitelist`, the same as the narrator. The bible has one whitelist and no per-model table yet.

@@ -11,6 +11,10 @@ export interface SentenceTiming {
   text: string;
   start_sec: number;
   end_sec: number;
+  /** Schema 2.1: which line and speaker the sentence belongs to. */
+  line_id?: string;
+  speaker?: string;
+  on_screen?: boolean;
 }
 
 const tokens = (text: string) => normalizePhrase(text).split(" ").filter(Boolean);

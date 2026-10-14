@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { presignAssetGet } from "@/lib/assets";
 import { getDb } from "@/lib/db";
 import { assets, projects, storyMasters, taskEvents, tasks } from "@/lib/db/schema";
+import { NARRATOR } from "@/lib/episode/constants";
 import type { StoryState } from "@/lib/episode/continuity";
 import type { PromptPart } from "@/lib/episode/prompt";
 import type { StoryBible } from "@/lib/episode/schema";
@@ -12,7 +13,7 @@ import { pageBaseUrl } from "@/lib/http";
 import { getStory, masterAssetKey } from "@/lib/pipeline/story";
 import { CopyButton, AutoRefresh } from "../../projects/[id]/client";
 import { ago, StateBadge } from "../../ui";
-import { DeleteStoryButton, MasterCard, StoryActionButton, type MasterView } from "./client";
+import { CastPanel, DeleteStoryButton, MasterCard, StoryActionButton, type CastView, type MasterView } from "./client";
 
 export default async function StoryPage({ params }: PageProps<"/stories/[id]">) {
   const { id } = await params;
@@ -65,6 +66,51 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
       };
     }),
   );
+  const sampleUrls = new Map<string, string>();
+  for (const a of candidateRows) {
+    if (!a.assetKey.startsWith("voice_sample/")) continue;
+    const speaker = a.assetKey.slice("voice_sample/".length);
+    if (!sampleUrls.has(speaker)) sampleUrls.set(speaker, await presignAssetGet(a, base));
+  }
+  const thumbOf = (key: string) => {
+    const m = masters.find((x) => x.key === key);
+    const c = m?.candidates.find((x) => x.id === m.approvedAssetId) ?? m?.candidates[0];
+    return c ? { key, url: c.url, approved: m?.status === "approved" } : null;
+  };
+  const status = state.current.character_status ?? {};
+  const cast: CastView[] = [
+    {
+      id: NARRATOR,
+      name: "Narrator",
+      role: bible.narrator.pov.replace("_", " "),
+      scope: null,
+      status: null,
+      lastSeen: null,
+      voiceId: bible.narrator.voice?.voice_id || bible.defaults.voice.voice_id || "",
+      voiceGroup: null,
+      canSpeak: true,
+      sampleUrl: sampleUrls.get(NARRATOR) ?? null,
+      sheets: [],
+    },
+    ...bible.characters.map((c) => ({
+      id: c.id,
+      name: c.name,
+      role: c.role,
+      scope: c.scope,
+      status: status[c.id]?.status ?? c.initial_status,
+      lastSeen: status[c.id]?.last_seen_episode ?? null,
+      voiceId: c.voice?.voice_id ?? "",
+      voiceGroup: c.voice_group,
+      canSpeak: !!c.voice,
+      sampleUrl: sampleUrls.get(c.id) ?? null,
+      sheets: [
+        ...c.outfit_states.map((o) => thumbOf(`char/${c.id}/${o.id}`)),
+        ...(bible.character_groups ?? []).filter((g) => g.character_ids.includes(c.id)).map((g) => thumbOf(`group/${g.id}`)),
+      ].filter((x): x is NonNullable<typeof x> => !!x),
+    })),
+  ];
+  const characterMasters = masters.filter((m) => m.kind !== "location");
+  const locationMasters = masters.filter((m) => m.kind === "location");
   const counts = {
     total: masters.length,
     approved: masters.filter((m) => m.status === "approved").length,
@@ -111,27 +157,51 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
       </div>
 
       <section className="card flex flex-col gap-3">
+        <h2 className="eyebrow">
+          Cast <span className="text-sm font-normal text-muted">(status after episode {state.committed_through_episode})</span>
+        </h2>
+        <CastPanel storyId={storyId} cast={cast} />
+      </section>
+
+      <section className="card flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="eyebrow">
-            Location masters{" "}
+            Masters{" "}
             <span className="text-sm font-normal text-muted">
               ({counts.approved}/{counts.total} approved{gateOn ? "" : ", gate off"})
             </span>
           </h2>
         </div>
         <p className="text-sm font-light text-muted">
-          Empty plates of every location state and angle, plus character sheets. Approved masters are sent to the bot as
-          reference images for every episode picture of that place. Regenerate any that don&apos;t match the fixed landmarks
-          or the character description.
+          Character sheets, group sheets and empty plates of every location state and angle. Approved masters are sent to
+          the bot as reference images for every episode picture they appear in. Regenerate any that don&apos;t match the
+          fixed landmarks or the character description.
         </p>
         {masters.length === 0 ? (
           <p className="text-sm text-muted">{gateOn ? "No masters yet." : "Masters are switched off for this story."}</p>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {masters.map((m) => (
-              <MasterCard key={m.key} storyId={storyId} master={m} />
-            ))}
-          </div>
+          <>
+            {characterMasters.length > 0 && (
+              <>
+                <h3 className="text-sm font-medium">Characters and groups</h3>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {characterMasters.map((m) => (
+                    <MasterCard key={m.key} storyId={storyId} master={m} />
+                  ))}
+                </div>
+              </>
+            )}
+            {locationMasters.length > 0 && (
+              <>
+                <h3 className="text-sm font-medium">Locations</h3>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {locationMasters.map((m) => (
+                    <MasterCard key={m.key} storyId={storyId} master={m} />
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
       </section>
 

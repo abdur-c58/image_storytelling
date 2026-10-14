@@ -3,7 +3,18 @@ import {
   BOT_TASK_TYPES,
   CARD_BACKGROUNDS,
   CHARACTER_ROLES,
+  CHARACTER_SCOPES,
+  CHARACTER_STATUSES,
   CROP_HARD_CAP,
+  DEFAULT_FLASHBACK_TREATMENT,
+  DEFAULT_MULTI_CHARACTER_NEGATIVE,
+  LINE_SOURCES,
+  PAIRING_LAYOUTS,
+  POV_MODES,
+  SUPPORTED_SCHEMA_VERSIONS,
+  TIMEFRAMES,
+  VISUAL_TREATMENTS,
+  VOICE_EFFECTS,
   CROP_MEASURES,
   CROP_TRANSITIONS,
   DEFAULT_PAIRED_TAGS,
@@ -13,7 +24,6 @@ import {
   FRAME_POSITIONS,
   PIPELINE_FIRE_STATES,
   REMOTION_TEMPLATES,
-  SCHEMA_VERSION,
   SEGMENT_TYPES,
   SFX_PLACEMENTS,
   TAG_FALLBACK_MODES,
@@ -37,6 +47,7 @@ const slug = z
 
 const nonEmpty = z.string().trim().min(1, "Must not be empty.");
 const unit = z.number().min(0).max(1);
+const schemaVersion = z.enum(SUPPORTED_SCHEMA_VERSIONS, { error: `"schema_version" must be "2.1" (or "2.0").` });
 
 // ── Shared blocks (story defaults, episode overrides) ───────────────────────
 
@@ -53,6 +64,8 @@ const voiceFields = {
   max_tags_per_100_words: z.number().min(0).max(100),
   pause_between_sentences_ms: z.number().int().min(0).max(5000),
   pause_between_segments_ms: z.number().int().min(0).max(5000),
+  narrator_to_dialogue_gap_ms: z.number().int().min(0).max(5000),
+  dialogue_reply_gap_ms: z.number().int().min(0).max(5000),
   tag_fallback_mode: z.enum(TAG_FALLBACK_MODES),
   pause_durations_ms: z.record(z.string().min(1), z.number().int().min(0).max(10000)),
 };
@@ -70,6 +83,8 @@ export const VoiceSchema = z.looseObject({
   max_tags_per_100_words: voiceFields.max_tags_per_100_words.default(8),
   pause_between_sentences_ms: voiceFields.pause_between_sentences_ms.default(350),
   pause_between_segments_ms: voiceFields.pause_between_segments_ms.default(450),
+  narrator_to_dialogue_gap_ms: voiceFields.narrator_to_dialogue_gap_ms.default(350),
+  dialogue_reply_gap_ms: voiceFields.dialogue_reply_gap_ms.default(220),
   tag_fallback_mode: voiceFields.tag_fallback_mode.default("split_and_silence"),
   pause_durations_ms: voiceFields.pause_durations_ms.default({ ...DEFAULT_PAUSE_DURATIONS_MS }),
 });
@@ -182,14 +197,58 @@ export const OutfitStateSchema = z.looseObject({
   description: z.string().default(""),
 });
 
+export const CharacterVoiceSchema = z.looseObject({
+  provider: z.literal("fish_audio").default("fish_audio"),
+  voice_id: z.string().default(""),
+  model: z.string().default(""),
+  speed: z.number().min(0.5).max(2).default(1),
+  /** Trim relative to the normalised voice target, so voices sit evenly. */
+  gain_db: z.number().min(-12).max(12).default(0),
+  style_notes: z.string().max(120).default(""),
+  pronunciation_overrides: z.record(z.string().min(1), z.string().min(1)).default({}),
+});
+
 export const CharacterSchema = z.looseObject({
   id: slug,
   name: nonEmpty,
   role: z.enum(CHARACTER_ROLES).default("extra"),
+  scope: z.enum(CHARACTER_SCOPES).default("story"),
   visual_description: nonEmpty,
   outfit_states: z.array(OutfitStateSchema).default([]),
   reference_image_ids: z.array(slug).default([]),
   first_appears_episode: z.number().int().min(1).default(1),
+  voice: CharacterVoiceSchema.nullable().default(null),
+  voice_group: z.string().trim().min(1).nullable().default(null),
+  initial_status: z.enum(CHARACTER_STATUSES).default("with_protagonist"),
+});
+
+/** A channel character used by this story; expanded from the registry when the bible is saved. */
+export const CharacterRefSchema = z.looseObject({
+  ref: slug,
+  story_outfit_states: z.array(OutfitStateSchema).default([]),
+  first_appears_episode: z.number().int().min(1).optional(),
+  initial_status: z.enum(CHARACTER_STATUSES).optional(),
+  role: z.enum(CHARACTER_ROLES).optional(),
+});
+
+export const NarratorSchema = z.looseObject({
+  pov: z.enum(POV_MODES).default("second_person"),
+  pov_character_id: slug.nullable().default(null),
+  voice: z
+    .looseObject({
+      voice_id: z.string().default(""),
+      model: z.string().default(""),
+      speed: z.number().min(0.5).max(2).nullable().default(null),
+      gain_db: z.number().min(-12).max(12).default(0),
+    })
+    .nullable()
+    .default(null),
+});
+
+export const CharacterGroupSchema = z.looseObject({
+  id: slug,
+  character_ids: z.array(slug).min(2, "A group needs at least two characters."),
+  description: z.string().default(""),
 });
 
 export const WorldVariableSchema = z.looseObject({
@@ -264,6 +323,8 @@ export const StyleBibleSchema = z.looseObject({
   source_image_min_width: z.number().int().min(1280).max(8192).default(2560),
   palette_notes: z.string().default(""),
   reference_assets: z.array(ReferenceAssetSchema).default([]),
+  multi_character_negative: z.string().default(DEFAULT_MULTI_CHARACTER_NEGATIVE),
+  flashback_treatment_prompt: z.string().default(DEFAULT_FLASHBACK_TREATMENT),
 });
 
 export const RetrySchema = z.looseObject({
@@ -296,17 +357,24 @@ export const StoryAutomationSchema = z.looseObject({
 });
 
 export const StoryBibleSchema = z.looseObject({
-  schema_version: z.literal(SCHEMA_VERSION),
+  schema_version: schemaVersion,
   doc_type: z.literal("story_bible"),
   story_id: slug,
   story_title: nonEmpty,
   total_episodes_planned: z.number().int().min(1).nullable().default(null),
   channel: ChannelSchema,
   style_bible: StyleBibleSchema,
-  characters: z.array(CharacterSchema).default([]),
+  narrator: NarratorSchema.prefault({}),
+  characters: z.array(z.union([CharacterRefSchema, CharacterSchema])).default([]),
+  character_groups: z.array(CharacterGroupSchema).default([]),
   scene_bible: SceneBibleSchema.prefault({}),
   defaults: StoryDefaultsSchema.prefault({}),
   automation: StoryAutomationSchema.prefault({}),
+});
+
+/** The bible as stored: `{ ref }` entries already expanded into full characters. */
+export const StoredStoryBibleSchema = StoryBibleSchema.extend({
+  characters: z.array(CharacterSchema).default([]),
 });
 
 // ── Episode ─────────────────────────────────────────────────────────────────
@@ -347,6 +415,9 @@ export const SceneSchema = z.looseObject({
   props_in_frame: z.array(slug).default([]),
   state_changes: z.array(StateChangeSchema).default([]),
   include_channel_cameo: z.boolean().default(false),
+  timeframe: z.enum(TIMEFRAMES).default("present"),
+  /** null: flashback_tint for flashbacks, none otherwise. */
+  visual_treatment: z.enum(VISUAL_TREATMENTS).nullable().default(null),
 });
 
 export const ThumbnailSceneSchema = z.looseObject({
@@ -411,12 +482,28 @@ export const SfxCueSchema = z.looseObject({
   continues_into_next: z.boolean().default(false),
 });
 
+export const LineSchema = z.looseObject({
+  id: slug,
+  /** "narrator" or a character id. */
+  speaker: slug,
+  text: nonEmpty,
+  tts_text: z.string().nullable().default(null),
+  voice_effect: z.enum(VOICE_EFFECTS).default("none"),
+  /** Whether the speaker is visible in the frame (characters only). */
+  on_screen: z.boolean().default(true),
+  /** "written": a note or message read aloud (allowed for absent characters). */
+  source: z.enum(LINE_SOURCES).default("spoken"),
+  caption_text: z.string().nullable().default(null),
+});
+
 export const SegmentSchema = z.looseObject({
   id: slug,
   order: z.number().int().min(1),
   type: z.enum(SEGMENT_TYPES),
   narration: z.string().default(""),
   tts_text: z.string().nullable().default(null),
+  /** Multi-speaker alternative to narration (one or the other). */
+  lines: z.array(LineSchema).min(1, "lines needs at least one line (or use narration).").nullable().default(null),
   caption_text: z.string().nullable().default(null),
   delivery: z.string().max(120).nullable().default(null),
   sentence_split_override: z.array(z.string().trim().min(1)).nullable().default(null),
@@ -440,6 +527,7 @@ export const ThumbnailSchema = z.looseObject({
   image_prompt: nonEmpty,
   scene: ThumbnailSceneSchema.nullable().default(null),
   characters_present: z.array(slug).default([]),
+  pairing_layout: z.enum(PAIRING_LAYOUTS).nullable().default(null),
   text_layers: z.array(ThumbnailTextLayerSchema).max(4).default([]),
   safe_zone_note: z.string().default(""),
   alt_variants: z.number().int().min(0).max(2).default(0),
@@ -496,14 +584,25 @@ export const BibleAdditionsSchema = z.looseObject({
   key_props: z.array(z.looseObject({ location_id: slug, prop: KeyPropSchema })).default([]),
   outfit_states: z.array(z.looseObject({ character_id: slug, outfit: OutfitStateSchema })).default([]),
   world_variables: z.array(WorldVariableSchema).default([]),
+  character_groups: z.array(CharacterGroupSchema).default([]),
+});
+
+export const CharacterStatusChangeSchema = z.looseObject({
+  character_id: slug,
+  to_status: z.enum(CHARACTER_STATUSES),
+  at_segment_id: slug,
+  cause: nonEmpty,
+  /** Required to bring a deceased character back. */
+  story_override: z.boolean().default(false),
 });
 
 export const EpisodeDocSchema = z.looseObject({
-  schema_version: z.literal(SCHEMA_VERSION),
+  schema_version: schemaVersion,
   doc_type: z.literal("episode"),
   story_id: slug,
   series: SeriesSchema,
   segments: z.array(SegmentSchema).min(1, "At least one segment is required."),
+  character_status_changes: z.array(CharacterStatusChangeSchema).default([]),
   thumbnail: ThumbnailSchema,
   youtube: YoutubeSchema,
   chapters: z.array(ChapterSchema).default([]),
@@ -513,15 +612,23 @@ export const EpisodeDocSchema = z.looseObject({
 });
 
 export const BundleSchema = z.looseObject({
-  schema_version: z.literal(SCHEMA_VERSION),
+  schema_version: schemaVersion,
   doc_type: z.literal("bundle"),
   story_bible: StoryBibleSchema,
   episode: EpisodeDocSchema,
 });
 
-export type StoryBible = z.output<typeof StoryBibleSchema>;
+/** A story bible as written: characters may be `{ ref }` entries for channel characters. */
+export type StoryBibleDoc = z.output<typeof StoryBibleSchema>;
+export type CharacterRef = z.output<typeof CharacterRefSchema>;
+/** A story bible with channel refs expanded (what is stored and what everything else reads). */
+export type StoryBible = z.output<typeof StoredStoryBibleSchema>;
 export type EpisodeDoc = z.output<typeof EpisodeDocSchema>;
 export type Bundle = z.output<typeof BundleSchema>;
+export type CharacterVoice = z.output<typeof CharacterVoiceSchema>;
+export type Line = z.output<typeof LineSchema>;
+export type CharacterStatusChange = z.output<typeof CharacterStatusChangeSchema>;
+export type CharacterGroup = z.output<typeof CharacterGroupSchema>;
 export type Voice = z.output<typeof VoiceSchema>;
 export type Audio = z.output<typeof AudioSchema>;
 export type Render = z.output<typeof RenderSchema>;
@@ -544,6 +651,8 @@ export type Episode = EpisodeDoc & {
     characters: { id: string; name: string; visual_description: string; reference_image_ids: string[] }[];
   };
   voice: Voice;
+  /** Voice per speaker ("narrator" and every character with a voice), defaults filled in. */
+  voices: Record<string, ResolvedVoice>;
   audio: Audio;
   render: Render;
   crop_policy: CropPolicy;
@@ -551,7 +660,9 @@ export type Episode = EpisodeDoc & {
     story_id: string;
     story_title: string;
     channel: StoryBible["channel"];
+    narrator: StoryBible["narrator"];
     characters: StoryCharacter[];
+    character_groups: CharacterGroup[];
     scene_bible: StoryBible["scene_bible"];
     /** Story state at the start of this episode (see lib/episode/continuity.ts). */
     start_state?: {
@@ -561,5 +672,13 @@ export type Episode = EpisodeDoc & {
     };
   };
 };
+export interface ResolvedVoice {
+  voice_id: string;
+  model: string;
+  speed: number;
+  gain_db: number;
+  style_notes: string;
+  pronunciation_overrides: Record<string, string>;
+}
 export type Segment = Episode["segments"][number];
 export type SfxCue = Segment["sfx"][number];

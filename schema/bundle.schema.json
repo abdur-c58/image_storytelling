@@ -7,7 +7,10 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "2.0"
+      "enum": [
+        "2.0",
+        "2.1"
+      ]
     },
     "doc_type": {
       "type": "string",
@@ -18,7 +21,10 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "2.0"
+          "enum": [
+            "2.0",
+            "2.1"
+          ]
         },
         "doc_type": {
           "type": "string",
@@ -155,6 +161,14 @@
                 ],
                 "additionalProperties": {}
               }
+            },
+            "multi_character_negative": {
+              "default": "merged faces, duplicate faces, fused bodies, extra limbs, the same face on two people, twins",
+              "type": "string"
+            },
+            "flashback_treatment_prompt": {
+              "default": "shown as a memory: faded warm sepia tint, soft hazy edges, gentle vignette",
+              "type": "string"
             }
           },
           "required": [
@@ -162,7 +176,315 @@
           ],
           "additionalProperties": {}
         },
+        "narrator": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "pov": {
+              "default": "second_person",
+              "type": "string",
+              "enum": [
+                "second_person",
+                "first_person",
+                "third_person"
+              ]
+            },
+            "pov_character_id": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "voice": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "voice_id": {
+                      "default": "",
+                      "type": "string"
+                    },
+                    "model": {
+                      "default": "",
+                      "type": "string"
+                    },
+                    "speed": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0.5,
+                          "maximum": 2
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "gain_db": {
+                      "default": 0,
+                      "type": "number",
+                      "minimum": -12,
+                      "maximum": 12
+                    }
+                  },
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": {}
+        },
         "characters": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "story_outfit_states": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "default": "",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "first_appears_episode": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "initial_status": {
+                    "type": "string",
+                    "enum": [
+                      "with_protagonist",
+                      "separated",
+                      "missing",
+                      "captive",
+                      "returned",
+                      "unknown",
+                      "deceased"
+                    ]
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "protagonist",
+                      "ally",
+                      "antagonist",
+                      "cameo",
+                      "extra"
+                    ]
+                  }
+                },
+                "required": [
+                  "ref"
+                ],
+                "additionalProperties": {}
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "role": {
+                    "default": "extra",
+                    "type": "string",
+                    "enum": [
+                      "protagonist",
+                      "ally",
+                      "antagonist",
+                      "cameo",
+                      "extra"
+                    ]
+                  },
+                  "scope": {
+                    "default": "story",
+                    "type": "string",
+                    "enum": [
+                      "story",
+                      "channel"
+                    ]
+                  },
+                  "visual_description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "outfit_states": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "default": "",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "reference_image_ids": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    }
+                  },
+                  "first_appears_episode": {
+                    "default": 1,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "voice": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "provider": {
+                            "default": "fish_audio",
+                            "type": "string",
+                            "const": "fish_audio"
+                          },
+                          "voice_id": {
+                            "default": "",
+                            "type": "string"
+                          },
+                          "model": {
+                            "default": "",
+                            "type": "string"
+                          },
+                          "speed": {
+                            "default": 1,
+                            "type": "number",
+                            "minimum": 0.5,
+                            "maximum": 2
+                          },
+                          "gain_db": {
+                            "default": 0,
+                            "type": "number",
+                            "minimum": -12,
+                            "maximum": 12
+                          },
+                          "style_notes": {
+                            "default": "",
+                            "type": "string",
+                            "maxLength": 120
+                          },
+                          "pronunciation_overrides": {
+                            "default": {},
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        },
+                        "additionalProperties": {}
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "voice_group": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "initial_status": {
+                    "default": "with_protagonist",
+                    "type": "string",
+                    "enum": [
+                      "with_protagonist",
+                      "separated",
+                      "missing",
+                      "captive",
+                      "returned",
+                      "unknown",
+                      "deceased"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "visual_description"
+                ],
+                "additionalProperties": {}
+              }
+            ]
+          }
+        },
+        "character_groups": {
           "default": [],
           "type": "array",
           "items": {
@@ -174,50 +496,8 @@
                 "maxLength": 64,
                 "pattern": "^[a-z0-9][a-z0-9_-]*$"
               },
-              "name": {
-                "type": "string",
-                "minLength": 1
-              },
-              "role": {
-                "default": "extra",
-                "type": "string",
-                "enum": [
-                  "protagonist",
-                  "ally",
-                  "antagonist",
-                  "cameo",
-                  "extra"
-                ]
-              },
-              "visual_description": {
-                "type": "string",
-                "minLength": 1
-              },
-              "outfit_states": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 64,
-                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
-                    },
-                    "description": {
-                      "default": "",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "id"
-                  ],
-                  "additionalProperties": {}
-                }
-              },
-              "reference_image_ids": {
-                "default": [],
+              "character_ids": {
+                "minItems": 2,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -226,17 +506,14 @@
                   "pattern": "^[a-z0-9][a-z0-9_-]*$"
                 }
               },
-              "first_appears_episode": {
-                "default": 1,
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 9007199254740991
+              "description": {
+                "default": "",
+                "type": "string"
               }
             },
             "required": [
               "id",
-              "name",
-              "visual_description"
+              "character_ids"
             ],
             "additionalProperties": {}
           }
@@ -571,6 +848,18 @@
                 },
                 "pause_between_segments_ms": {
                   "default": 450,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "narrator_to_dialogue_gap_ms": {
+                  "default": 350,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "dialogue_reply_gap_ms": {
+                  "default": 220,
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5000
@@ -916,7 +1205,8 @@
                     "enum": [
                       "generate_images",
                       "upload_youtube",
-                      "generate_location_master"
+                      "generate_location_master",
+                      "generate_character_group_master"
                     ]
                   },
                   "fire_when": {
@@ -1005,7 +1295,10 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "2.0"
+          "enum": [
+            "2.0",
+            "2.1"
+          ]
         },
         "doc_type": {
           "type": "string",
@@ -1091,6 +1384,83 @@
                 "type": [
                   "string",
                   "null"
+                ]
+              },
+              "lines": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "speaker": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "tts_text": {
+                          "default": null,
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "voice_effect": {
+                          "default": "none",
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "radio",
+                            "phone",
+                            "muffled",
+                            "echo",
+                            "memory"
+                          ]
+                        },
+                        "on_screen": {
+                          "default": true,
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "default": "spoken",
+                          "type": "string",
+                          "enum": [
+                            "spoken",
+                            "written"
+                          ]
+                        },
+                        "caption_text": {
+                          "default": null,
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "speaker",
+                        "text"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "caption_text": {
@@ -1287,6 +1657,30 @@
                       "include_channel_cameo": {
                         "default": false,
                         "type": "boolean"
+                      },
+                      "timeframe": {
+                        "default": "present",
+                        "type": "string",
+                        "enum": [
+                          "present",
+                          "flashback",
+                          "imagined"
+                        ]
+                      },
+                      "visual_treatment": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "flashback_tint",
+                              "none"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -1761,6 +2155,54 @@
             "additionalProperties": {}
           }
         },
+        "character_status_changes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "character_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "to_status": {
+                "type": "string",
+                "enum": [
+                  "with_protagonist",
+                  "separated",
+                  "missing",
+                  "captive",
+                  "returned",
+                  "unknown",
+                  "deceased"
+                ]
+              },
+              "at_segment_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "cause": {
+                "type": "string",
+                "minLength": 1
+              },
+              "story_override": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "character_id",
+              "to_status",
+              "at_segment_id",
+              "cause"
+            ],
+            "additionalProperties": {}
+          }
+        },
         "thumbnail": {
           "type": "object",
           "properties": {
@@ -1827,6 +2269,22 @@
                 "maxLength": 64,
                 "pattern": "^[a-z0-9][a-z0-9_-]*$"
               }
+            },
+            "pairing_layout": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "side_by_side",
+                    "foreground_background",
+                    "split"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "text_layers": {
               "default": [],
@@ -2079,7 +2537,8 @@
                     "enum": [
                       "generate_images",
                       "upload_youtube",
-                      "generate_location_master"
+                      "generate_location_master",
+                      "generate_character_group_master"
                     ]
                   },
                   "fire_when": {
@@ -2221,6 +2680,16 @@
                   "maximum": 5000
                 },
                 "pause_between_segments_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "narrator_to_dialogue_gap_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "dialogue_reply_gap_ms": {
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5000
@@ -2516,6 +2985,14 @@
                       "extra"
                     ]
                   },
+                  "scope": {
+                    "default": "story",
+                    "type": "string",
+                    "enum": [
+                      "story",
+                      "channel"
+                    ]
+                  },
                   "visual_description": {
                     "type": "string",
                     "minLength": 1
@@ -2558,6 +3035,87 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 9007199254740991
+                  },
+                  "voice": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "provider": {
+                            "default": "fish_audio",
+                            "type": "string",
+                            "const": "fish_audio"
+                          },
+                          "voice_id": {
+                            "default": "",
+                            "type": "string"
+                          },
+                          "model": {
+                            "default": "",
+                            "type": "string"
+                          },
+                          "speed": {
+                            "default": 1,
+                            "type": "number",
+                            "minimum": 0.5,
+                            "maximum": 2
+                          },
+                          "gain_db": {
+                            "default": 0,
+                            "type": "number",
+                            "minimum": -12,
+                            "maximum": 12
+                          },
+                          "style_notes": {
+                            "default": "",
+                            "type": "string",
+                            "maxLength": 120
+                          },
+                          "pronunciation_overrides": {
+                            "default": {},
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        },
+                        "additionalProperties": {}
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "voice_group": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "initial_status": {
+                    "default": "with_protagonist",
+                    "type": "string",
+                    "enum": [
+                      "with_protagonist",
+                      "separated",
+                      "missing",
+                      "captive",
+                      "returned",
+                      "unknown",
+                      "deceased"
+                    ]
                   }
                 },
                 "required": [
@@ -2971,6 +3529,40 @@
                   "id",
                   "type",
                   "initial"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "character_groups": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "character_ids": {
+                    "minItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    }
+                  },
+                  "description": {
+                    "default": "",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "character_ids"
                 ],
                 "additionalProperties": {}
               }

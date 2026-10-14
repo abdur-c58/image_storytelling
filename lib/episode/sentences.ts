@@ -1,3 +1,4 @@
+import { lineOnScreen, segmentLines } from "./lines";
 import { stripTags } from "./tags";
 
 const ABBREVIATIONS = new Set([
@@ -66,4 +67,25 @@ export function segmentSentences(seg: { narration: string; sentence_split_overri
     return seg.sentence_split_override.map((x) => x.trim()).filter(Boolean);
   }
   return splitSentences(stripTags(seg.narration));
+}
+
+export interface SentenceUnit {
+  text: string;
+  line_id: string;
+  line_index: number;
+  speaker: string;
+  /** The speaker is visible in frame (never the narrator). */
+  on_screen: boolean;
+}
+
+/**
+ * Sentences across all of a segment's lines, in order, each tagged with its line and speaker. A narration-only
+ * segment keeps its sentence_split_override.
+ */
+export function segmentSentenceUnits(seg: Parameters<typeof segmentLines>[0] & { sentence_split_override?: string[] | null }): SentenceUnit[] {
+  const lines = segmentLines(seg);
+  return lines.flatMap((line, line_index) => {
+    const texts = lines.length === 1 && seg.sentence_split_override?.length ? segmentSentences({ ...seg, narration: line.text }) : splitSentences(stripTags(line.text));
+    return texts.map((text) => ({ text, line_id: line.id, line_index, speaker: line.speaker, on_screen: lineOnScreen(line) }));
+  });
 }

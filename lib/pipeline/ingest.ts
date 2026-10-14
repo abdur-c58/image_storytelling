@@ -2,6 +2,7 @@ import "server-only";
 import type { Db } from "@/lib/db";
 import type { Episode } from "@/lib/episode/schema";
 import { detectDocType, parseJsonText, validateText, type DocType, type ValidationResult } from "@/lib/episode/validate";
+import { loadCastRegistry } from "./cast";
 import { createProject } from "./project";
 import { loadStoryContext, mergeBibleAdditions, saveStory } from "./story";
 
@@ -11,10 +12,11 @@ export async function validateWithStore(db: Db, text: string, now?: Date): Promi
   if (errors.length) return validateText(text, { now });
   const { doc_type, story_id } = detectDocType(raw);
   const story = (doc_type === "episode" || doc_type === "bundle") && story_id ? await loadStoryContext(db, story_id) : null;
-  const result = validateText(text, { now, story });
+  const result = validateText(text, { now, story, registry: await loadCastRegistry(db) });
   if (doc_type === "episode" && !story && result.needs_story) {
     result.errors.push({
       level: "error",
+      category: "general",
       path: ["story_id"],
       path_text: "story_id",
       message: `Story "${result.needs_story}" does not exist yet. Paste its story bible first, or paste a bundle.`,

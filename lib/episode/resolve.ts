@@ -2,13 +2,18 @@ import {
   AudioSchema,
   CropPolicySchema,
   RenderSchema,
+  StoredStoryBibleSchema,
   VoiceSchema,
   type BibleAdditions,
   type CropPolicy,
   type Episode,
   type EpisodeDoc,
+  type ResolvedVoice,
   type StoryBible,
+  type Voice,
 } from "./schema";
+import { NARRATOR } from "./constants";
+import { segmentLines } from "./lines";
 
 const clone = <T>(v: T): T => structuredClone(v);
 
@@ -42,7 +47,50 @@ export function applyBibleAdditions(bible: StoryBible, add: BibleAdditions | und
     const c = out.characters.find((x) => x.id === character_id);
     if (c && !has(c.outfit_states, outfit.id)) c.outfit_states.push(clone(outfit));
   }
+  for (const g of add.character_groups ?? []) if (!has(out.character_groups, g.id)) out.character_groups.push(clone(g));
   return out;
+}
+
+/** The voice each speaker uses: the narrator from narrator.voice over defaults.voice, characters from their own. */
+export function speakerVoices(story: StoryBible, voice: Voice): Record<string, ResolvedVoice> {
+  const n = story.narrator.voice;
+  const out: Record<string, ResolvedVoice> = {
+    [NARRATOR]: {
+      voice_id: n?.voice_id || voice.voice_id,
+      model: n?.model || voice.model,
+      speed: n?.speed ?? voice.speed,
+      gain_db: n?.gain_db ?? 0,
+      style_notes: voice.style_notes,
+      pronunciation_overrides: { ...voice.pronunciation_overrides },
+    },
+  };
+  for (const c of story.characters) {
+    if (!c.voice) continue;
+    out[c.id] = {
+      voice_id: c.voice.voice_id,
+      model: c.voice.model || voice.model,
+      speed: c.voice.speed,
+      gain_db: c.voice.gain_db,
+      style_notes: c.voice.style_notes,
+      pronunciation_overrides: { ...voice.pronunciation_overrides, ...c.voice.pronunciation_overrides },
+    };
+  }
+  return out;
+}
+
+/** Every spoken segment gets `lines`; narration/tts_text/caption_text become the joined lines for whole-text uses. */
+function normaliseLines(seg: EpisodeDoc["segments"][number]): EpisodeDoc["segments"][number] {
+  const lines = segmentLines(seg);
+  if (!lines.length) return { ...seg, lines: null };
+  if (!seg.lines?.length) return { ...seg, lines };
+  const hasCaption = lines.some((l) => l.caption_text);
+  return {
+    ...seg,
+    lines,
+    narration: lines.map((l) => l.text.trim()).join(" "),
+    tts_text: lines.some((l) => l.tts_text) ? lines.map((l) => (l.tts_text ?? l.text).trim()).join(" ") : null,
+    caption_text: hasCaption ? lines.map((l) => (l.caption_text ?? l.text).trim()).join(" ") : seg.caption_text,
+  };
 }
 
 export function mergeCropPolicy(base: CropPolicy, ...overrides: (Record<string, unknown> | null | undefined)[]): CropPolicy {
@@ -71,8 +119,10 @@ export function resolveEpisode(bible: StoryBible, doc: EpisodeDoc): Episode {
   const crop_policy = mergeCropPolicy(story.defaults.crop_policy, o.crop_policy as Record<string, unknown> | undefined);
 
   const rest = clone(doc);
+  rest.segments = rest.segments.map(normaliseLines);
   return {
     ...rest,
+    voices: speakerVoices(story, voice),
     series: {
       ...rest.series,
       series_id: story.story_id,
@@ -97,10 +147,18 @@ export function resolveEpisode(bible: StoryBible, doc: EpisodeDoc): Episode {
       story_id: story.story_id,
       story_title: story.story_title,
       channel: clone(story.channel),
+      narrator: clone(story.narrator),
       characters: clone(story.characters),
+      character_groups: clone(story.character_groups),
       scene_bible: clone(story.scene_bible),
     },
   };
+}
+
+/** A stored (already expanded) bible with defaults for fields added since it was saved. */
+export function upgradeStoredBible(b: unknown): StoryBible {
+  const parsed = StoredStoryBibleSchema.safeParse(b);
+  return (parsed.success ? parsed.data : b) as StoryBible;
 }
 
 export function isResolvedV2(ep: unknown): ep is Episode {

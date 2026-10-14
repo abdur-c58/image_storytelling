@@ -1,5 +1,31 @@
-export const SCHEMA_VERSION = "2.0";
+export const SCHEMA_VERSION = "2.1";
+/** 2.1 only adds optional fields, so 2.0 documents are still accepted. */
+export const SUPPORTED_SCHEMA_VERSIONS = ["2.0", "2.1"] as const;
 export const DOC_TYPES = ["story_bible", "episode", "bundle"] as const;
+
+export const POV_MODES = ["second_person", "first_person", "third_person"] as const;
+export const CHARACTER_SCOPES = ["story", "channel"] as const;
+export const VOICE_EFFECTS = ["none", "radio", "phone", "muffled", "echo", "memory"] as const;
+/** Effects that mean the speaker is not in the room (a remote voice). */
+export const REMOTE_VOICE_EFFECTS = ["radio", "phone"] as const;
+export const LINE_SOURCES = ["spoken", "written"] as const;
+export const NARRATOR = "narrator";
+export const CHARACTER_STATUSES = ["with_protagonist", "separated", "missing", "captive", "returned", "unknown", "deceased"] as const;
+/** Statuses in which a character cannot be seen or heard in the present. */
+export const ABSENT_STATUSES = ["separated", "missing", "captive", "deceased"] as const;
+export const TIMEFRAMES = ["present", "flashback", "imagined"] as const;
+export const VISUAL_TREATMENTS = ["flashback_tint", "none"] as const;
+export const PAIRING_LAYOUTS = ["side_by_side", "foreground_background", "split"] as const;
+/** Coarse frame positions used when a speaker has no focal point of their own. */
+export const POSITION_POINTS: Record<string, { x: number; y: number }> = {
+  left: { x: 0.3, y: 0.45 },
+  center: { x: 0.5, y: 0.45 },
+  right: { x: 0.7, y: 0.45 },
+  background: { x: 0.5, y: 0.45 },
+};
+export const DEFAULT_MULTI_CHARACTER_NEGATIVE = "merged faces, duplicate faces, fused bodies, extra limbs, the same face on two people, twins";
+export const DEFAULT_FLASHBACK_TREATMENT = "shown as a memory: faded warm sepia tint, soft hazy edges, gentle vignette";
+export const PRONOUN_NAMES = ["you", "your", "yourself", "i", "me", "myself"] as const;
 
 export const SEGMENT_TYPES = ["illustration", "title_card", "infographic", "reuse_image"] as const;
 export const CHARACTER_ROLES = ["protagonist", "ally", "antagonist", "cameo", "extra"] as const;
@@ -66,7 +92,7 @@ export const THUMBNAIL_POSITIONS = [
   "bottom_right",
 ] as const;
 export const PIPELINE_FIRE_STATES = ["VALIDATED", "IMAGES_RECEIVED", "RENDER_COMPLETE", "STORY_VALIDATED"] as const;
-export const BOT_TASK_TYPES = ["generate_images", "upload_youtube", "generate_location_master"] as const;
+export const BOT_TASK_TYPES = ["generate_images", "upload_youtube", "generate_location_master", "generate_character_group_master"] as const;
 
 /** YouTube category name -> category id (YouTube Data API v3, region-independent ids). */
 export const YOUTUBE_CATEGORIES: Record<string, number> = {

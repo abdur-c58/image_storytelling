@@ -1,6 +1,7 @@
 /**
  * Stand-in for the Grok browser bot. Claims bot tasks over the real HTTP API, uploads placeholder
- * images for generate_images / generate_location_master and pretends to publish for upload_youtube.
+ * images for generate_images / generate_location_master / generate_character_group_master and pretends to
+ * publish for upload_youtube.
  *
  *   BOT_TOKEN=... APP_BASE_URL=http://localhost:3000 npx tsx scripts/fake-bot.ts [--once] [--interval 5]
  */
@@ -18,6 +19,7 @@ if (!token) {
 }
 
 const headers = { authorization: `Bearer ${token}`, "x-agent-id": "fake-bot" };
+const IMAGE_TASKS = ["generate_images", "generate_location_master", "generate_character_group_master"];
 
 async function call(path: string, init: RequestInit = {}) {
   const res = await fetch(`${base}${path}`, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
@@ -117,7 +119,7 @@ async function main() {
     if (task) {
       console.log(`claimed ${task.type} (${task.scope}) for "${task.project_title ?? task.story_title}"`);
       try {
-        if (task.type === "generate_images" || task.type === "generate_location_master") await doImages(task);
+        if (IMAGE_TASKS.includes(task.type)) await doImages(task);
         else if (task.type === "upload_youtube") await doPublish(task);
         else throw new Error(`Unknown task type ${task.type}`);
       } catch (error) {

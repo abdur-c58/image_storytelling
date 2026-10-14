@@ -149,7 +149,7 @@ async function main() {
   if (allFeatures) {
     episode.overrides = { ...episode.overrides, render: { burn_in_captions: true, caption_style: "bottom_bar", outro_sec: 1.5 } };
   }
-  const bundle = { schema_version: "2.0", doc_type: "bundle", story_bible: bible, episode };
+  const bundle = { schema_version: "2.1", doc_type: "bundle", story_bible: bible, episode };
   const res = await fetch(`${base}/api/projects`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
@@ -158,6 +158,15 @@ async function main() {
   const created = (await res.json()) as { id?: string; story_id?: string; error?: string; errors?: unknown };
   if (!res.ok || !created.id) throw new Error(`create failed: ${JSON.stringify(created)}`);
   console.log(`[e2e] story ${created.story_id}, project ${created.id}`);
+  const speakers = ["narrator", ...(bible.characters as { id?: string; voice?: unknown }[]).filter((c) => c.id && c.voice).map((c) => c.id!)];
+  for (const speaker of speakers) {
+    const t = await fetch(`${base}/api/stories/${created.story_id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ action: "test_voice", speaker }),
+    });
+    if (!t.ok) throw new Error(`test_voice ${speaker} failed: ${await t.text()}`);
+  }
 
   start("bot", process.execPath, [path.join(root, "node_modules", "tsx", "dist", "cli.mjs"), "scripts/fake-bot.ts", "--interval", "2"], {
     APP_BASE_URL: base,
@@ -207,8 +216,24 @@ async function main() {
   console.log(`[e2e] crop plan: ${crops} crop(s) over ${Object.keys(crop.segments).length} segments`);
   const story = (await (await fetch(`${base}/api/stories/${created.story_id}`, { headers: { cookie } })).json()) as {
     story_state: { committed_through_episode: number };
+    masters: { master_key: string; status: string }[];
+    voice_samples: { speaker: string }[];
   };
   if (story.story_state.committed_through_episode < episode.series.episode_number) throw new Error("story state was not committed on publish");
+  const sampled = new Set(story.voice_samples.map((s) => s.speaker));
+  const unsampled = speakers.filter((s) => !sampled.has(s));
+  if (unsampled.length) throw new Error(`no voice test came back for ${unsampled.join(", ")}`);
+  console.log(`[e2e] voice tests: ${[...sampled].join(", ")}`);
+  const groups = story.masters.filter((m) => m.master_key.startsWith("group/"));
+  if (!noMasters) console.log(`[e2e] group masters: ${groups.map((g) => `${g.master_key}=${g.status}`).join(", ") || "none"}`);
+
+  // Dialogue: sentences in the crop plan carry the speaker of their line.
+  const dialogue = (episode.segments as { id: string; lines?: { speaker: string }[] }[]).filter((s) => s.lines?.some((l) => l.speaker !== "narrator"));
+  for (const s of dialogue) {
+    const sentences = (crop.segments[s.id]?.sentences ?? []) as { speaker?: string }[];
+    if (!sentences.some((x) => x.speaker && x.speaker !== "narrator")) throw new Error(`${s.id}: crop sentences have no dialogue speakers`);
+  }
+  if (dialogue.length) console.log(`[e2e] dialogue segments with speaker-tagged sentences: ${dialogue.map((s) => s.id).join(", ")}`);
 
   const finals = findFiles(storageDir, (p) => p.endsWith(".mp4") && p.split(path.sep).includes("final"));
   if (finals.length !== 1) throw new Error(`expected one final video, found ${finals.length}`);

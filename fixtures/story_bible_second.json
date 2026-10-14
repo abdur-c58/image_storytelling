@@ -1,0 +1,41 @@
+{
+  "schema_version": "2.1",
+  "doc_type": "story_bible",
+  "story_id": "harbour-test",
+  "story_title": "Harbour Test Story",
+  "total_episodes_planned": 2,
+  "channel": { "channel_name": "Test Channel" },
+  "style_bible": {
+    "global_style_prompt": "Flat 2D cartoon illustration, thick clean outlines, muted colours, simple shapes, storybook style",
+    "negative_prompt": "photorealistic, 3d render, text, watermark",
+    "aspect_ratio": "16:9",
+    "target_resolution": "1920x1080"
+  },
+  "narrator": { "pov": "third_person", "pov_character_id": null, "voice": null },
+  "characters": [
+    { "ref": "mara", "story_outfit_states": [{ "id": "wetsuit", "description": "a black wetsuit with a red stripe" }] },
+    { "ref": "dex", "initial_status": "with_protagonist" },
+    {
+      "id": "harbourmaster",
+      "name": "Inez",
+      "role": "ally",
+      "visual_description": "a round stick figure with short white hair and a captain's cap",
+      "outfit_states": [{ "id": "default", "description": "a navy pea coat" }],
+      "voice": { "voice_id": "test-voice-inez", "style_notes": "brisk" }
+    }
+  ],
+  "scene_bible": {
+    "world_variables": [],
+    "locations": [
+      {
+        "id": "pier",
+        "name": "The pier",
+        "tags": ["outdoor"],
+        "anchor_description": "a long wooden pier with rope coils and a lamp post at the end",
+        "camera_angles": [{ "id": "a", "name": "Down the pier", "prompt": "wide shot down the length of the pier" }],
+        "states": [{ "id": "calm", "description": "calm grey water", "is_base": true }]
+      }
+    ]
+  },
+  "automation": { "approval_gates": { "location_masters": true } }
+}

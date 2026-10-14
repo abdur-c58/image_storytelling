@@ -1,9 +1,20 @@
+import { ABSENT_STATUSES, NARRATOR, PRONOUN_NAMES, REMOTE_VOICE_EFFECTS } from "./constants";
+import { segmentLines } from "./lines";
 import type { BibleAdditions, EpisodeDoc, Location, StoryBible, WorldVariable } from "./schema";
 
 export type IssuePath = (string | number)[];
 export interface IssueSink {
   error(path: IssuePath, message: string): void;
   warn(path: IssuePath, message: string): void;
+}
+
+export type CharacterStatusName = StoryBible["characters"][number]["initial_status"];
+
+export interface CharacterStatusEntry {
+  status: CharacterStatusName;
+  last_known_location_id: string | null;
+  last_seen_episode: number | null;
+  outfit_state_id: string;
 }
 
 /** Where the story stands after an episode: what the next episode starts from. */
@@ -13,7 +24,11 @@ export interface StoryStateSnapshot {
   world: Record<string, number | string>;
   outfits: Record<string, string>;
   introduced_characters: string[];
+  /** Presence/absence of every character (schema 2.1; older snapshots lack it). */
+  character_status?: Record<string, CharacterStatusEntry>;
 }
+
+export const isAbsent = (s: string) => (ABSENT_STATUSES as readonly string[]).includes(s);
 
 /** Persisted on the story row; exportable as JSON from the Story page. */
 export interface StoryState {
@@ -39,6 +54,12 @@ export function initialSnapshot(bible: StoryBible): StoryStateSnapshot {
     world: Object.fromEntries(bible.scene_bible.world_variables.map((v) => [v.id, v.initial])),
     outfits: Object.fromEntries(bible.characters.map((c) => [c.id, defaultOutfitId(c)])),
     introduced_characters: [],
+    character_status: Object.fromEntries(
+      bible.characters.map((c) => [
+        c.id,
+        { status: c.initial_status, last_known_location_id: null, last_seen_episode: null, outfit_state_id: defaultOutfitId(c) },
+      ]),
+    ),
   };
 }
 
@@ -61,6 +82,7 @@ export function startSnapshotFor(state: StoryState | null, bible: StoryBible, ep
     world: { ...fresh.world, ...prior.world },
     outfits: { ...fresh.outfits, ...prior.outfits },
     introduced_characters: [...prior.introduced_characters],
+    character_status: { ...fresh.character_status, ...(prior.character_status ?? {}) },
   };
 }
 
@@ -116,6 +138,22 @@ export function checkStoryBible(bible: StoryBible, issues: IssueSink, prefix: Is
     });
   });
 
+  const charIds = new Set(bible.characters.map((c) => c.id));
+  if (charIds.has(NARRATOR)) issues.error(at("characters"), `"${NARRATOR}" is reserved for the narrator; rename that character.`);
+  const pov = bible.narrator.pov_character_id;
+  if (pov && !charIds.has(pov)) issues.error(at("narrator", "pov_character_id"), `Unknown character "${pov}".`);
+  if (bible.narrator.pov !== "third_person" && !pov) {
+    issues.warn(at("narrator", "pov_character_id"), `A ${bible.narrator.pov.replace("_", "-")} story should name its POV character (pov_character_id).`);
+  }
+  dupes(bible.character_groups, at("character_groups"), "character group");
+  bible.character_groups.forEach((g, gi) => {
+    g.character_ids.forEach((cid, ci) => {
+      if (!charIds.has(cid)) issues.error(at("character_groups", gi, "character_ids", ci), `${g.id}: unknown character "${cid}".`);
+    });
+    if (new Set(g.character_ids).size !== g.character_ids.length) issues.error(at("character_groups", gi, "character_ids"), `${g.id}: a character is listed twice.`);
+  });
+  checkSharedVoices(bible, issues, prefix);
+
   bible.scene_bible.world_variables.forEach((v, vi) => {
     const vp = at("scene_bible", "world_variables", vi);
     if (v.type === "enum" && v.values.length === 0) issues.error([...vp, "values"], `${v.id}: enum variables need "values".`);
@@ -127,6 +165,20 @@ export function checkStoryBible(bible: StoryBible, issues: IssueSink, prefix: Is
     for (const m of v.prompt_template.matchAll(/\{([a-z0-9_-]+)\}/gi)) {
       if (m[1] !== "value") issues.warn([...vp, "prompt_template"], `${v.id}: placeholder "{${m[1]}}" is not filled; use "{value}".`);
     }
+  });
+}
+
+/** Speakers sharing a voice_id sound alike; warn unless they declare the same voice_group. */
+export function checkSharedVoices(bible: StoryBible, issues: IssueSink, prefix: IssuePath = []) {
+  const speakers: { id: string; voice_id: string; group: string | null; path: IssuePath }[] = [];
+  const narratorVoice = bible.narrator.voice?.voice_id || bible.defaults.voice.voice_id;
+  if (narratorVoice) speakers.push({ id: NARRATOR, voice_id: narratorVoice, group: null, path: [...prefix, "narrator", "voice", "voice_id"] });
+  bible.characters.forEach((c, i) => {
+    if (c.voice?.voice_id) speakers.push({ id: c.id, voice_id: c.voice.voice_id, group: c.voice_group, path: [...prefix, "characters", i, "voice", "voice_id"] });
+  });
+  speakers.forEach((s, i) => {
+    const twin = speakers.slice(0, i).find((o) => o.voice_id === s.voice_id && !(o.group && o.group === s.group));
+    if (twin) issues.warn(s.path, `${s.id} uses the same voice_id as ${twin.id}; listeners won't tell them apart (give both the same voice_group if that's intended).`);
   });
 }
 
@@ -144,6 +196,14 @@ export function checkBibleAdditions(bible: StoryBible, add: BibleAdditions, issu
 
   add.characters.forEach((c, i) => {
     if (conflicts(bible.characters, c)) issues.error(at("characters", i, "id"), `Character "${c.id}" already exists; ${appendOnly}`);
+  });
+  add.character_groups.forEach((g, i) => {
+    if (conflicts(bible.character_groups, g)) issues.error(at("character_groups", i, "id"), `Character group "${g.id}" already exists; ${appendOnly}`);
+    g.character_ids.forEach((cid, ci) => {
+      if (!bible.characters.some((c) => c.id === cid) && !add.characters.some((c) => c.id === cid)) {
+        issues.error(at("character_groups", i, "character_ids", ci), `${g.id}: unknown character "${cid}".`);
+      }
+    });
   });
   add.world_variables.forEach((v, i) => {
     if (conflicts(bible.scene_bible.world_variables, v)) {
@@ -193,6 +253,8 @@ export interface ContinuityResult {
   usedViews: { location_id: string; state_id: string; camera_angle_id: string }[];
   /** (character, outfit) pairs the episode's scenes use. */
   usedOutfits: { character_id: string; outfit_state_id: string }[];
+  /** Character groups that share a picture. */
+  usedGroups: string[];
 }
 
 /**
@@ -219,11 +281,101 @@ export function checkContinuity(
   const introduced = new Set(state.introduced_characters);
   const views = new Map<string, ContinuityResult["usedViews"][number]>();
   const outfits = new Map<string, ContinuityResult["usedOutfits"][number]>();
+  const groups = new Set<string>();
   const cameo = bible.channel.recurring_cameo;
   let cameoCount = 0;
   const lastWorldAt = new Map<string, number>();
 
-  doc.segments.forEach((seg, i) => {
+  // ── Character status ──────────────────────────────────────────────
+  const status = (state.character_status ??= {});
+  for (const c of bible.characters) {
+    status[c.id] ??= { status: c.initial_status, last_known_location_id: null, last_seen_episode: null, outfit_state_id: defaultOutfitId(c) };
+  }
+  const segIndex = new Map(doc.segments.map((s, i) => [s.id, i]));
+  const changesAt = new Map<string, { change: EpisodeDoc["character_status_changes"][number]; index: number }[]>();
+  doc.character_status_changes.forEach((change, index) => {
+    const cp = [...prefix, "character_status_changes", index];
+    if (!chars.has(change.character_id)) {
+      issues.error([...cp, "character_id"], `Unknown character "${change.character_id}".`);
+      return;
+    }
+    if (!segIndex.has(change.at_segment_id)) {
+      issues.error([...cp, "at_segment_id"], `Unknown segment "${change.at_segment_id}".`);
+      return;
+    }
+    const list = changesAt.get(change.at_segment_id) ?? [];
+    list.push({ change, index });
+    changesAt.set(change.at_segment_id, list);
+  });
+  /** Absent statuses start after their segment (the parting is shown); others start at it (the return is shown). */
+  const applyChanges = (segId: string, phase: "before" | "after", locationId: string | null) => {
+    for (const { change, index } of changesAt.get(segId) ?? []) {
+      if (isAbsent(change.to_status) !== (phase === "after")) continue;
+      const cp = [...prefix, "character_status_changes", index];
+      const entry = status[change.character_id];
+      if (entry.status === "deceased" && change.to_status !== "deceased" && !change.story_override) {
+        issues.error([...cp, "to_status"], `${change.character_id} is deceased; bringing them back needs "story_override": true.`);
+        continue;
+      }
+      if (entry.status === change.to_status) issues.warn([...cp, "to_status"], `${change.character_id} is already "${change.to_status}".`);
+      entry.status = change.to_status;
+      if (locationId) entry.last_known_location_id = locationId;
+    }
+  };
+  const seen = (cid: string, locationId: string | null) => {
+    const entry = status[cid];
+    if (!entry) return;
+    entry.last_seen_episode = epNo;
+    if (locationId) entry.last_known_location_id = locationId;
+  };
+  const absentHere = (cid: string) => isAbsent(status[cid]?.status ?? "with_protagonist");
+
+  // ── POV ───────────────────────────────────────────────────────────
+  const povId = bible.narrator.pov_character_id;
+  const povChar = povId ? chars.get(povId) : undefined;
+  const povName = povChar && !(PRONOUN_NAMES as readonly string[]).includes(povChar.name.trim().toLowerCase()) ? povChar.name.trim() : null;
+  const povNameRe = povName ? new RegExp(`\\b${povName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") : null;
+  const secondPerson = bible.narrator.pov === "second_person";
+
+  // ── Lines: speakers, voices, absence ─────────────────────────────
+  const checkLines = (seg: EpisodeDoc["segments"][number], i: number, present: boolean, locationId: string | null) => {
+    const inFrame = new Set(seg.scene?.characters_present.map((c) => c.character_id) ?? []);
+    segmentLines(seg).forEach((line, li) => {
+      const lp = seg.lines?.length ? [...prefix, "segments", i, "lines", li] : [...prefix, "segments", i, "narration"];
+      if (line.speaker === NARRATOR) {
+        if (secondPerson && povNameRe?.test(line.text)) {
+          issues.warn([...lp], `${seg.id}: in a second-person story the narrator shouldn't name the POV character ("${povName}"); say "you".`);
+        }
+        return;
+      }
+      const c = chars.get(line.speaker);
+      if (!c) {
+        issues.error([...lp, "speaker"], `${seg.id}: unknown speaker "${line.speaker}" (use "${NARRATOR}" or a character id).`);
+        return;
+      }
+      if (!c.voice) {
+        issues.error([...lp, "speaker"], `${seg.id}: ${c.id} has no "voice" in the story bible, so it can't speak lines.`);
+      } else if (!c.voice.voice_id) {
+        issues.warn([...lp, "speaker"], `${seg.id}: ${c.id} has no voice_id; the worker's default voice (the narrator's) will be used.`);
+      }
+      const remote = (REMOTE_VOICE_EFFECTS as readonly string[]).includes(line.voice_effect) || line.source === "written";
+      if (present && absentHere(c.id) && !remote) {
+        issues.error(
+          [...lp, "speaker"],
+          `${seg.id}: ${c.id} is "${status[c.id].status}" here, so they can't speak in the present. Use voice_effect "radio"/"phone", source "written", a flashback, or a character_status_changes entry.`,
+        );
+      }
+      if (remote && line.on_screen && line.source === "spoken") {
+        issues.warn([...lp, "on_screen"], `${seg.id}: a ${line.voice_effect} voice is not in the frame; set "on_screen": false.`);
+      }
+      if (line.on_screen && seg.type === "illustration" && seg.scene && !inFrame.has(c.id) && !remote) {
+        issues.warn([...lp, "on_screen"], `${seg.id}: ${c.id} speaks on screen but isn't in scene.characters_present.`);
+      }
+      if (present && line.on_screen && !remote) seen(c.id, locationId);
+    });
+  };
+
+  const walkScene = (seg: EpisodeDoc["segments"][number], i: number) => {
     const at = (...p: IssuePath) => [...prefix, "segments", i, ...p];
     const label = seg.id;
     if (seg.type === "illustration" && !seg.scene) {
@@ -235,14 +387,21 @@ export function checkContinuity(
       issues.warn(at("scene"), `${label}: reuse_image shows its source's picture; this scene is used for continuity only.`);
     }
     const scene = seg.scene;
+    const present = scene.timeframe === "present";
     const loc = locations.get(scene.location_id);
     if (!loc) {
       issues.error(at("scene", "location_id"), `${label}: unknown location "${scene.location_id}".`);
       return;
     }
+    if (scene.visual_treatment === "flashback_tint" && present) {
+      issues.warn(at("scene", "visual_treatment"), `${label}: flashback_tint on a present-day scene.`);
+    }
+    if (!present && scene.state_changes.length) {
+      issues.warn(at("scene", "state_changes"), `${label}: a ${scene.timeframe} scene doesn't change the story; these state_changes are ignored.`);
+    }
 
     const temporary: Record<string, string> = {};
-    scene.state_changes.forEach((ch, ci) => {
+    (present ? scene.state_changes : []).forEach((ch, ci) => {
       const cp = at("scene", "state_changes", ci);
       const target = locations.get(ch.location_id);
       if (!target) {
@@ -269,7 +428,7 @@ export function checkContinuity(
     const expected = temporary[loc.id] ?? state.locations[loc.id];
     if (!loc.states.some((s) => s.id === scene.state_id)) {
       issues.error(at("scene", "state_id"), `${label}: ${loc.id} has no state "${scene.state_id}".`);
-    } else if (scene.state_id !== expected) {
+    } else if (present && scene.state_id !== expected) {
       issues.error(
         at("scene", "state_id"),
         `${label}: ${loc.id} is "${expected}" here, but the scene says "${scene.state_id}". Add a state_change or fix the state.`,
@@ -294,6 +453,7 @@ export function checkContinuity(
         issues.error(wp, `${label}: ${bad}`);
         continue;
       }
+      if (!present) continue;
       const prev = state.world[vid];
       if (typeof prev === "number" && typeof value === "number") {
         if (v.monotonic === "increasing" && value < prev) issues.warn(wp, `${label}: "${vid}" goes down (${prev} → ${value}) but is monotonic increasing.`);
@@ -306,7 +466,7 @@ export function checkContinuity(
       state.world[vid] = value;
       lastWorldAt.set(vid, i);
     }
-    if (seg.type === "illustration") {
+    if (seg.type === "illustration" && present) {
       for (const v of bible.scene_bible.world_variables) {
         if (variableApplies(v, loc) && v.prompt_template && !(v.id in scene.world_state)) {
           issues.error(at("scene", "world_state"), `${label}: missing world variable "${v.id}" (applies to ${loc.id}). Current value: ${JSON.stringify(state.world[v.id])}.`);
@@ -329,17 +489,39 @@ export function checkContinuity(
         );
       }
       if (!cp.cameo) introduced.add(c.id);
+      if (present && absentHere(c.id)) {
+        issues.error(
+          [...p, "character_id"],
+          `${label}: ${c.id} is "${status[c.id].status}" at this point and can't be in a present-day picture. Add a character_status_changes entry, or make the scene a flashback/imagined.`,
+        );
+      }
       if (cp.outfit_state_id) {
         const known = c.outfit_states.some((o) => o.id === cp.outfit_state_id) || (cp.outfit_state_id === DEFAULT_OUTFIT && !c.outfit_states.length);
         if (!known) {
           issues.error([...p, "outfit_state_id"], `${label}: ${c.id} has no outfit "${cp.outfit_state_id}". Add it in bible_additions.outfit_states.`);
           return;
         }
-        state.outfits[c.id] = cp.outfit_state_id;
+        if (present) state.outfits[c.id] = cp.outfit_state_id;
       }
-      const outfit = state.outfits[c.id] ?? defaultOutfitId(c);
+      const outfit = (present ? state.outfits[c.id] : cp.outfit_state_id ?? state.outfits[c.id]) ?? defaultOutfitId(c);
       if (seg.type === "illustration") outfits.set(`${c.id}/${outfit}`, { character_id: c.id, outfit_state_id: outfit });
+      if (present && !cp.cameo) {
+        seen(c.id, loc.id);
+        status[c.id].outfit_state_id = outfit;
+      }
     });
+
+    if (secondPerson && povId && present && seg.type === "illustration" && !scene.characters_present.some((cp) => cp.character_id === povId)) {
+      issues.warn(at("scene", "characters_present"), `${label}: second-person story, but the POV character (${povId}) isn't in this present-day picture.`);
+    }
+    if (seg.type === "illustration") for (const g of groupsIn(bible, scene.characters_present)) groups.add(g);
+    const crowd = scene.characters_present.filter((cp) => !cp.cameo).length;
+    if (crowd >= 2) {
+      const positions = scene.characters_present.filter((cp) => !cp.cameo).map((cp) => cp.position_in_frame);
+      if (new Set(positions).size < positions.length && !positions.includes("background")) {
+        issues.warn(at("scene", "characters_present"), `${label}: two characters share position "${positions.find((p, k) => positions.indexOf(p) !== k)}"; give each its own position_in_frame so they don't merge.`);
+      }
+    }
 
     scene.props_in_frame.forEach((pid, pi) => {
       if (!loc.key_props.some((p) => p.id === pid)) issues.error(at("scene", "props_in_frame", pi), `${label}: ${loc.id} has no prop "${pid}".`);
@@ -349,6 +531,15 @@ export function checkContinuity(
       cameoCount++;
       if (!cameo) issues.warn(at("scene", "include_channel_cameo"), `${label}: the story bible has no channel.recurring_cameo.`);
     }
+  };
+
+  doc.segments.forEach((seg, i) => {
+    const present = (seg.scene?.timeframe ?? "present") === "present";
+    const locationId = seg.scene && present ? seg.scene.location_id : null;
+    applyChanges(seg.id, "before", locationId);
+    walkScene(seg, i);
+    checkLines(seg, i, present, locationId);
+    applyChanges(seg.id, "after", locationId);
   });
 
   if (cameo?.min_segments_per_episode && cameoCount < cameo.min_segments_per_episode) {
@@ -373,9 +564,22 @@ export function checkContinuity(
   doc.thumbnail.characters_present.forEach((cid, ci) => {
     if (!chars.has(cid)) issues.error([...prefix, "thumbnail", "characters_present", ci], `Unknown character "${cid}".`);
   });
+  if (doc.thumbnail.pairing_layout && doc.thumbnail.characters_present.length < 2) {
+    issues.warn([...prefix, "thumbnail", "pairing_layout"], "pairing_layout is only used with two or more characters_present.");
+  }
 
   state.introduced_characters = [...introduced].sort();
-  return { end: state, usedViews: [...views.values()], usedOutfits: [...outfits.values()] };
+  return { end: state, usedViews: [...views.values()], usedOutfits: [...outfits.values()], usedGroups: [...groups].sort() };
+}
+
+/** Character groups whose members are all (non-cameo) in a picture. */
+export function groupsIn(bible: Pick<StoryBible, "character_groups">, present: { character_id: string; cameo?: boolean }[]): string[] {
+  const ids = new Set(present.filter((p) => !p.cameo).map((p) => p.character_id));
+  return bible.character_groups.filter((g) => g.character_ids.every((c) => ids.has(c))).map((g) => g.id);
+}
+
+export function masterKeyForGroup(groupId: string): string {
+  return `group/${groupId}`;
 }
 
 export function masterKeyForView(v: { location_id: string; state_id: string; camera_angle_id: string }): string {

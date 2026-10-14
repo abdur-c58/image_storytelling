@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { markAssetReady, pendingAssetsForTask, readyAssets } from "@/lib/assets";
 import type { Db } from "@/lib/db";
 import { projects, segments, sfxCache, sfxCues, usageEvents, type TaskRow } from "@/lib/db/schema";
+import type { LineTiming } from "@/lib/crop/timeline";
 import type { Episode } from "@/lib/episode/schema";
 import { spokenTagWords } from "@/lib/episode/tags";
 import { logEvent, ownerOf } from "@/lib/queue";
@@ -70,10 +71,14 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
 
   switch (task.type) {
     case "voice": {
-      for (const s of (result.segments as { segment_id: string; duration_sec: number }[]) ?? []) {
+      type VoiceSeg = { segment_id: string; duration_sec: number; lines?: LineTiming[] };
+      for (const s of (result.segments as VoiceSeg[]) ?? []) {
+        const lineTimings = Array.isArray(s.lines)
+          ? s.lines.filter((l) => l && typeof l.line_id === "string" && Number.isFinite(l.start) && Number.isFinite(l.end))
+          : [];
         await db
           .update(segments)
-          .set({ audioDurationSec: s.duration_sec, updatedAt: new Date() })
+          .set({ audioDurationSec: s.duration_sec, lineTimings, updatedAt: new Date() })
           .where(and(eq(segments.projectId, projectId), eq(segments.segmentId, s.segment_id)));
       }
       break;

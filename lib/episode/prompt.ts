@@ -1,4 +1,5 @@
-import { baseStateId, defaultOutfitId, masterKeyForOutfit, masterKeyForView, variableApplies } from "./continuity";
+import { DEFAULT_FLASHBACK_TREATMENT, DEFAULT_MULTI_CHARACTER_NEGATIVE } from "./constants";
+import { baseStateId, defaultOutfitId, groupsIn, masterKeyForGroup, masterKeyForOutfit, masterKeyForView, variableApplies } from "./continuity";
 import type { Episode, Location, Segment, StoryBible, StoryCharacter } from "./schema";
 
 export interface PromptPart {
@@ -90,9 +91,37 @@ export interface SegmentScene {
   state_id: string;
   camera_angle_id: string;
   world: Record<string, number | string>;
-  characters: { character: StoryCharacter; outfit_state_id: string; pose: string; position: string }[];
+  characters: { character: StoryCharacter; outfit_state_id: string; pose: string; position: string; cameo?: boolean }[];
   props: string[];
   cameo: boolean;
+  /** Text appended for a flashback/imagined treatment, or null. */
+  treatment?: string | null;
+  /** Character groups whose members all share this picture. */
+  groups?: string[];
+}
+
+type CharacterEntry = SegmentScene["characters"][number];
+
+/** "Exactly N different people" when two or more characters share a picture, so the model doesn't merge them. */
+export function crowdParts(characters: CharacterEntry[], layout?: string | null): PromptPart[] {
+  const people = characters.filter((c) => !c.cameo);
+  if (people.length < 2) return [];
+  const where = people.map((c) => `${c.character.name}${c.position ? ` (${c.position === "background" ? "background" : `${c.position} of frame`})` : ""}`);
+  const parts: PromptPart[] = [
+    { kind: "group", label: `${people.length} characters`, text: `Exactly ${people.length} different people, each clearly distinct with their own face and clothes: ${where.join(", ")}` },
+  ];
+  if (layout) parts.push({ kind: "group", label: `Layout: ${layout}`, text: `Composition: ${PAIRING_TEXT[layout] ?? layout}` });
+  return parts;
+}
+
+const PAIRING_TEXT: Record<string, string> = {
+  side_by_side: "the characters side by side at the same distance from the camera",
+  foreground_background: "one character large in the foreground, the other smaller in the background",
+  split: "split composition, one character on each half of the frame",
+};
+
+export function multiCharacterNegative(episode: Pick<Episode, "style_bible">, characters: CharacterEntry[]): string {
+  return characters.filter((c) => !c.cameo).length >= 2 ? (episode.style_bible.multi_character_negative ?? DEFAULT_MULTI_CHARACTER_NEGATIVE) : "";
 }
 
 export function segmentScenes(
@@ -111,26 +140,34 @@ export function segmentScenes(
     ...(start?.outfits ?? {}),
   };
   const out = new Map<string, SegmentScene>();
+  const groups = episode.story.character_groups ?? [];
+  const flashbackText = episode.style_bible.flashback_treatment_prompt ?? DEFAULT_FLASHBACK_TREATMENT;
   for (const seg of [...episode.segments].sort((a, b) => a.order - b.order)) {
     const scene = seg.scene;
     if (!scene) continue;
-    Object.assign(world, scene.world_state);
+    // Flashbacks and imagined scenes don't move the story on: their values are shown, not kept.
+    const now = (scene.timeframe ?? "present") === "present";
+    const shownWorld = now ? Object.assign(world, scene.world_state) : { ...world, ...scene.world_state };
     const loc = locations.get(scene.location_id);
     if (!loc) continue;
     const present = scene.characters_present.flatMap((cp) => {
       const c = chars.get(cp.character_id);
       if (!c) return [];
-      if (cp.outfit_state_id) outfits[c.id] = cp.outfit_state_id;
-      return [{ character: c, outfit_state_id: outfits[c.id] ?? defaultOutfitId(c), pose: cp.pose_or_action, position: cp.position_in_frame }];
+      if (cp.outfit_state_id && now) outfits[c.id] = cp.outfit_state_id;
+      const outfit = (now ? outfits[c.id] : cp.outfit_state_id ?? outfits[c.id]) ?? defaultOutfitId(c);
+      return [{ character: c, outfit_state_id: outfit, pose: cp.pose_or_action, position: cp.position_in_frame, cameo: cp.cameo }];
     });
+    const treatment = scene.visual_treatment ?? (scene.timeframe === "flashback" ? "flashback_tint" : "none");
     out.set(seg.id, {
       location: loc,
       state_id: scene.state_id,
       camera_angle_id: scene.camera_angle_id,
-      world: { ...world },
+      world: { ...shownWorld },
       characters: present,
       props: scene.props_in_frame,
       cameo: scene.include_channel_cameo,
+      treatment: treatment === "flashback_tint" ? flashbackText : null,
+      groups: groupsIn({ character_groups: groups }, scene.characters_present),
     });
   }
   return out;
@@ -140,11 +177,12 @@ export function segmentScenes(
  * final_prompt = style + location anchor + state + angle + world variables + characters (visual, outfit, pose)
  * + props + channel cameo + image.prompt.
  */
-export function scenePromptParts(episode: Episode, ctx: SegmentScene | null, scenePrompt: string): PromptPart[] {
+export function scenePromptParts(episode: Episode, ctx: SegmentScene | null, scenePrompt: string, layout: string | null = null): PromptPart[] {
   const parts: PromptPart[] = [{ kind: "style", label: "Style", text: episode.style_bible.global_style_prompt }];
   if (ctx) {
     parts.push(...locationParts(ctx.location, ctx.state_id, ctx.camera_angle_id));
     parts.push(...worldParts(episode.story.scene_bible, ctx.location, ctx.world));
+    parts.push(...crowdParts(ctx.characters, layout));
     for (const c of ctx.characters) parts.push(characterPart(c.character, c.outfit_state_id, c.pose, c.position));
     const props = ctx.props
       .map((id) => ctx.location.key_props.find((p) => p.id === id))
@@ -155,6 +193,7 @@ export function scenePromptParts(episode: Episode, ctx: SegmentScene | null, sce
     if (ctx.cameo && cameo) parts.push({ kind: "cameo", label: "Channel cameo", text: `Somewhere in frame: ${cameo.description}` });
   }
   if (scenePrompt.trim()) parts.push({ kind: "scene", label: "Scene", text: `Scene: ${scenePrompt}` });
+  if (ctx?.treatment) parts.push({ kind: "treatment", label: "Flashback", text: ctx.treatment });
   return parts;
 }
 
@@ -180,6 +219,7 @@ export function masterKeysFor(ctx: SegmentScene | null): string[] {
   return [
     masterKeyForView({ location_id: ctx.location.id, state_id: ctx.state_id, camera_angle_id: ctx.camera_angle_id }),
     ...ctx.characters.map((c) => masterKeyForOutfit({ character_id: c.character.id, outfit_state_id: c.outfit_state_id })),
+    ...(ctx.groups ?? []).map(masterKeyForGroup),
   ];
 }
 
@@ -193,7 +233,7 @@ export function buildSegmentImageItem(episode: Episode, segment: Segment, scenes
     segment_id: segment.id,
     asset_key: `image/${segment.id}`,
     final_prompt: joinParts(parts),
-    negative_prompt: assembleNegative(episode, image.negative_prompt_extra),
+    negative_prompt: assembleNegative(episode, [image.negative_prompt_extra, multiCharacterNegative(episode, ctx?.characters ?? [])].filter(Boolean).join(", ")),
     prompt_parts: parts,
     master_keys: masterKeysFor(ctx),
     reference_image_ids: refs.ids,
@@ -229,16 +269,20 @@ export function buildThumbnailItems(episode: Episode): ImageItem[] {
           }),
           props: [],
           cameo: false,
+          groups: groupsIn({ character_groups: episode.story.character_groups ?? [] }, th.characters_present.map((character_id) => ({ character_id }))),
         }
       : null;
+  const thumbChars: CharacterEntry[] = th.characters_present.flatMap((id) => {
+    const c = chars.get(id);
+    return c ? [{ character: c, outfit_state_id: defaultOutfitId(c), pose: "", position: "" }] : [];
+  });
+  const layout = th.pairing_layout ?? null;
   const parts = ctx
-    ? scenePromptParts(episode, ctx, th.image_prompt)
+    ? scenePromptParts(episode, ctx, th.image_prompt, layout)
     : [
         { kind: "style", label: "Style", text: episode.style_bible.global_style_prompt },
-        ...th.characters_present.flatMap((id) => {
-          const c = chars.get(id);
-          return c ? [characterPart(c, defaultOutfitId(c), "", "")] : [];
-        }),
+        ...crowdParts(thumbChars, layout),
+        ...thumbChars.map((c) => characterPart(c.character, c.outfit_state_id, "", "")),
         { kind: "scene", label: "Scene", text: `Scene: ${th.image_prompt}` },
       ];
   const refs = legacyReferences(episode, th.characters_present);
@@ -248,7 +292,7 @@ export function buildThumbnailItems(episode: Episode): ImageItem[] {
       segment_id: "thumbnail",
       asset_key: `thumbnail_base/${variant}`,
       final_prompt: joinParts(parts),
-      negative_prompt: assembleNegative(episode, "text, letters, watermark"),
+      negative_prompt: assembleNegative(episode, ["text, letters, watermark", multiCharacterNegative(episode, thumbChars)].filter(Boolean).join(", ")),
       prompt_parts: parts,
       master_keys: masterKeysFor(ctx),
       reference_image_ids: refs.ids,
@@ -264,7 +308,7 @@ export function buildThumbnailItems(episode: Episode): ImageItem[] {
 
 export interface MasterItem {
   master_key: string;
-  kind: "location" | "character";
+  kind: "location" | "character" | "group";
   label: string;
   final_prompt: string;
   negative_prompt: string;
@@ -322,6 +366,35 @@ export function buildMasterItems(bible: StoryBible): MasterItem[] {
         output_filename: `${key.replaceAll("/", "__")}.png`,
       });
     }
+  }
+  const chars = new Map(bible.characters.map((c) => [c.id, c]));
+  for (const g of bible.character_groups ?? []) {
+    const members = g.character_ids.map((id) => chars.get(id)).filter((c): c is StoryCharacter => !!c);
+    if (members.length < 2) continue;
+    const key = masterKeyForGroup(g.id);
+    const entries: CharacterEntry[] = members.map((c, i) => ({
+      character: c,
+      outfit_state_id: defaultOutfitId(c),
+      pose: "standing, full body, facing the viewer",
+      position: members.length === 2 ? (i === 0 ? "left" : "right") : i === 0 ? "left" : i === members.length - 1 ? "right" : "center",
+    }));
+    const parts: PromptPart[] = [
+      style,
+      ...crowdParts(entries, "side_by_side"),
+      ...entries.map((e) => characterPart(e.character, e.outfit_state_id, e.pose, e.position)),
+      ...(g.description ? [{ kind: "scene", label: "Group", text: g.description }] : []),
+      { kind: "scene", label: "Master", text: "Group reference picture: these characters together, full body, plain neutral background, each clearly a different person" },
+    ];
+    items.push({
+      master_key: key,
+      kind: "group",
+      label: `Group: ${members.map((m) => m.name).join(" + ")}`,
+      final_prompt: joinParts(parts),
+      negative_prompt: [bible.style_bible.negative_prompt, bible.style_bible.multi_character_negative ?? DEFAULT_MULTI_CHARACTER_NEGATIVE, "text, labels, watermark"].filter(Boolean).join(", "),
+      prompt_parts: parts,
+      must_match: members.map((m) => `${m.name}: ${m.visual_description}`),
+      output_filename: `${key.replaceAll("/", "__")}.png`,
+    });
   }
   return items;
 }

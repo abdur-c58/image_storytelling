@@ -2,7 +2,7 @@
 
 Paste a story bible once, then one episode JSON per video, and get a finished YouTube video: AI images (Google Flow, via the Grok bot) kept consistent by approved location and character masters, Fish Audio narration with voice tags, licensed sound effects, Remotion cards and thumbnail, a loudness-checked mix, a sentence-driven crop render, and an upload to YouTube Studio (also via the bot).
 
-Documents use schema **2.0** (`story_bible`, `episode`, or a `bundle` of both). What changed from 1.0 is in `docs/SCHEMA_V2_CHANGELOG.md`.
+Documents use schema **2.1** (`story_bible`, `episode`, or a `bundle` of both); 2.0 documents are still accepted. What changed from 1.0, and in 2.1 (dialogue, recurring cast, character status), is in `docs/SCHEMA_V2_CHANGELOG.md`.
 
 ```text
              paste JSON                               poll over HTTPS (outbound only)
@@ -27,11 +27,15 @@ A **story** (`/stories`) holds the story bible: characters with outfits, locatio
 | Story state | Meaning |
 |---|---|
 | `STORY_VALIDATED` | Bible stored. |
-| `LOCATION_MASTERS_REQUESTED` | The bot is making masters: an empty plate of every location × state × angle, and a sheet of every character × outfit. |
+| `LOCATION_MASTERS_REQUESTED` | The bot is making masters: an empty plate of every location × state × angle, a sheet of every character × outfit, and one picture of every character group. |
 | `MASTERS_REVIEW` | Masters uploaded; approve or regenerate them on the Story page (prompts and "must match" landmarks are shown). |
 | `MASTERS_APPROVED` | All approved. Episodes waiting on them continue. |
 
 Episodes are validated against the story's **state**: locations change state only through `state_changes`, world variables stay consistent, characters appear from their first episode. When an episode is published, its end state is committed to the story (or commit it by hand); the Story page shows and exports it and gives the "Context for episode N" block for Claude. New things an episode introduces (`bible_additions`) are merged into the story and get masters too. With `automation.approval_gates.location_masters: false` there are no masters and nothing waits.
+
+The story state also tracks each character's **status** (with you, separated, missing, captive, returned, unknown, deceased), changed by an episode's `character_status_changes`. Absent characters can only appear in flashbacks, over radio or phone, or in written notes. The Story page's **Cast** panel shows each character's status, scope and voice. Use **Test voice** there to hear a short sample in that voice (a `voice_sample` worker task), and **Add to channel cast** to make a character recurring.
+
+**Channel cast.** Characters with `scope: "channel"` are stored in a channel-wide registry (`channel_characters`) the first time a story uses them. Later stories write `{ "ref": "mara" }` instead of redefining them. Their description, voice and reference images come from the registry, and their approved masters are copied in, so the face and voice stay the same across stories. Changing a channel character from another story is rejected with a list of the differences.
 
 ## Pipeline
 
@@ -51,6 +55,8 @@ Episodes are validated against the story's **state**: locations change state onl
 After `align`, the site splits each segment's narration into sentences, times them with Whisper's words and writes a **crop plan** into `timeline.json`: one-sentence segments stay full frame, two-sentence segments crop on the second, longer ones alternate full frame and a held crop (typically 4–10%, never over 20%), with moves placed in the gaps between sentences. The project page shows each plan on a mini timeline with a per-segment **Auto / On / Off** toggle and **Re-roll**; both redo only the render. Plans are seeded, so re-renders are identical unless re-rolled.
 
 Voice: `narration` is clean text; `tts_text` carries Fish Drama 3 tags (`[pause]`, `<whisper>…</whisper>`). Whisper QA flags a segment where a tag was read aloud; the second time it switches that segment to **split and silence** (spoken in pieces cut at pause tags and sentence ends, joined with exact silences).
+
+Dialogue: a segment can have `lines[]` (narrator and characters) instead of `narration`. Each line is spoken in its speaker's Fish voice, normalised to the voice target plus the speaker's `gain_db`, passed through its `voice_effect` (radio, phone, muffled, echo, memory; ffmpeg chains in the worker's `voice_effects.json`) and normalised again. Lines are joined with 350 ms gaps between narrator and dialogue and 220 ms between characters. The voice file is still one per segment, and the worker reports where each line starts and ends. The project page shows each line with a speaker chip, its effect and its own player. Crops prefer to start and end on a speaker change and lean toward the on-screen speaker.
 
 To start episodes without the editor, drop one or more story bible, episode or bundle JSON files onto the **Projects** page (or use **Choose files**). Story bibles are saved first. A dialog asks how automation should run: **Run to YouTube** (no stops), **Review before publishing** (waits for your approval before upload), **Import only** (draft), or **Use each file's own settings**. If a series/episode number already exists, it offers to replace it (the old project is archived and its queued tasks cancelled). Invalid files are listed with their first error and a **Fix in editor** button.
 

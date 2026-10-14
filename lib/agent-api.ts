@@ -42,6 +42,7 @@ const SLOT_RULES: { prefix: string; types: string[]; maxBytes: number }[] = [
   { prefix: "card/", types: ["image/png"], maxBytes: 25 * MB },
   { prefix: "thumbnail/", types: ["image/jpeg"], maxBytes: 2 * MB },
   { prefix: "voice/", types: ["audio/flac", "audio/wav", "audio/x-wav"], maxBytes: 200 * MB },
+  { prefix: "voice_sample/", types: ["audio/flac", "audio/wav", "audio/x-wav"], maxBytes: 20 * MB },
   { prefix: "sfx/", types: ["audio/flac", "audio/wav", "audio/x-wav"], maxBytes: 100 * MB },
   { prefix: "timeline/", types: ["application/json"], maxBytes: 10 * MB },
   { prefix: "mix/report", types: ["application/json"], maxBytes: 10 * MB },
@@ -52,6 +53,7 @@ const SLOT_RULES: { prefix: string; types: string[]; maxBytes: number }[] = [
 
 const TYPE_PREFIXES: Record<string, string[]> = {
   voice: ["voice/"],
+  voice_sample: ["voice_sample/"],
   align: ["timeline/"],
   sfx: ["sfx/"],
   cards: ["card/"],
@@ -64,7 +66,7 @@ function slotRule(assetKey: string) {
   return SLOT_RULES.find((r) => assetKey.startsWith(r.prefix)) ?? null;
 }
 
-const BOT_IMAGE_TASKS = new Set(["generate_images", "generate_location_master"]);
+const BOT_IMAGE_TASKS = new Set(["generate_images", "generate_location_master", "generate_character_group_master"]);
 
 export function allowedKey(task: TaskRow, assetKey: string): boolean {
   if (BOT_IMAGE_TASKS.has(task.type)) {

@@ -12,7 +12,7 @@ import { getDb, type Db } from "@/lib/db";
 import { projects, segments, stories, storyMasters, tasks, type TaskRow } from "@/lib/db/schema";
 import type { StoryState } from "@/lib/episode/continuity";
 import type { ImageItem } from "@/lib/episode/prompt";
-import { StoryBibleSchema, type Episode } from "@/lib/episode/schema";
+import { StoredStoryBibleSchema, type Episode, type StoryBible } from "@/lib/episode/schema";
 import { approveGate, deleteProject, regenerateImage, retryFailed } from "@/lib/pipeline/actions";
 import { advance } from "@/lib/pipeline/advance";
 import { onTaskCompleted } from "@/lib/pipeline/complete";
@@ -20,7 +20,7 @@ import { rerollCrops } from "@/lib/pipeline/crop";
 import { ingestDocument } from "@/lib/pipeline/ingest";
 import { hydrateTask } from "@/lib/pipeline/payloads";
 import { assetKeys, orderedSegments, requirements } from "@/lib/pipeline/requirements";
-import { advanceStory, approveAllGenerated, saveStory } from "@/lib/pipeline/story";
+import { advanceStory, approveAllGenerated, saveStory, supersetProblems } from "@/lib/pipeline/story";
 import { completeTask, failTask, heartbeatTask, leaseNext, reapExpired } from "@/lib/queue";
 import { getStorage, projectObjectPrefix } from "@/lib/storage";
 
@@ -35,7 +35,7 @@ beforeAll(async () => {
   // The shared story runs without the masters gate; the gate has its own story below.
   const b = bibleRaw();
   b.automation.approval_gates.location_masters = false;
-  await saveStory(db, StoryBibleSchema.parse(b), JSON.stringify(b), []);
+  await saveStory(db, StoredStoryBibleSchema.parse(b), JSON.stringify(b), []);
 });
 
 async function project(id: string) {
@@ -101,7 +101,14 @@ async function fulfil(
     case "voice": {
       const ids = pick(req.spoken, "segment_ids");
       for (const id of ids) await ready(owner, task.id, assetKeys.voice(id), "audio/flac");
-      return { segments: ids.map((id) => ({ segment_id: id, duration_sec: 3 })), usage: [{ provider: "fish", unit: "chars", quantity: 80 }] };
+      const lineWindows = (id: string) => {
+        const ls = ep.segments.find((s) => s.id === id)?.lines ?? [];
+        return ls.map((l, i) => ({ line_id: l.id, speaker: l.speaker, start: (i * 11) / ls.length, end: ((i + 1) * 11) / ls.length - 0.2, voice_effect: l.voice_effect }));
+      };
+      return {
+        segments: ids.map((id) => ({ segment_id: id, duration_sec: 3, lines: lineWindows(id) })),
+        usage: [{ provider: "fish", unit: "chars", quantity: 80 }],
+      };
     }
     case "align": {
       const asset = await ready(owner, task.id, assetKeys.timeline, "application/json");
@@ -323,7 +330,7 @@ describe("stories (schema 2.0)", () => {
     const b = bibleRaw();
     b.automation.approval_gates.location_masters = false;
     b.scene_bible.locations = b.scene_bible.locations.filter((l: { id: string }) => l.id !== "apartment");
-    await expect(saveStory(db, StoryBibleSchema.parse(b), JSON.stringify(b), [])).rejects.toThrow(/location apartment was removed/);
+    await expect(saveStory(db, StoredStoryBibleSchema.parse(b), JSON.stringify(b), [])).rejects.toThrow(/location apartment was removed/);
   });
 
   it("gates episode images on approved masters and passes them as references", async () => {
@@ -337,11 +344,11 @@ describe("stories (schema 2.0)", () => {
     const [story] = await db.select().from(stories).where(eq(stories.id, "gated-story"));
     expect(story.state).toBe("LOCATION_MASTERS_REQUESTED");
     const masters = await db.select().from(storyMasters).where(eq(storyMasters.storyId, "gated-story"));
-    expect(masters).toHaveLength(11);
+    expect(masters).toHaveLength(13);
     expect((await project(id)).state).toBe("WAITING_MASTERS");
 
     // Worker stages run meanwhile; episode images do not.
-    const early = await drain(id, { types: ["voice", "sfx", "cards", "align", "mix", "generate_location_master"] });
+    const early = await drain(id, { types: ["voice", "sfx", "cards", "align", "mix", "generate_location_master", "generate_character_group_master"] });
     expect(early).toContain("generate_location_master");
     expect(early).toContain("voice");
     expect(early).not.toContain("generate_images");
@@ -349,7 +356,7 @@ describe("stories (schema 2.0)", () => {
     expect(reviewing.state).toBe("MASTERS_REVIEW");
     expect((await project(id)).state).toBe("WAITING_MASTERS");
 
-    expect(await approveAllGenerated(db, "gated-story")).toBe(11);
+    expect(await approveAllGenerated(db, "gated-story")).toBe(13);
     const [approved] = await db.select().from(stories).where(eq(stories.id, "gated-story"));
     expect(approved.state).toBe("MASTERS_APPROVED");
 
@@ -377,7 +384,7 @@ describe("stories (schema 2.0)", () => {
     expect(keys).toContain("char/protagonist/bandaged");
     expect((await project(id)).state).toBe("WAITING_MASTERS");
 
-    await drain(id, { types: ["voice", "sfx", "cards", "align", "mix", "generate_location_master"] });
+    await drain(id, { types: ["voice", "sfx", "cards", "align", "mix", "generate_location_master", "generate_character_group_master"] });
     expect(await approveAllGenerated(db, "gated-story")).toBeGreaterThan(0);
     await drain(id);
     expect((await project(id)).state).toBe("PUBLISHED");
@@ -439,5 +446,82 @@ describe("stories (schema 2.0)", () => {
     const last = voiceTasks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
     const hydrated = (await hydrateTask(db, last, "https://site.test")) as { payload: { voice_modes: Record<string, string> } };
     expect(hydrated.payload.voice_modes.seg_003).toBe("split_and_silence");
+  });
+});
+
+describe("schema 2.1: dialogue and channel cast", () => {
+  it("stores line timings and tags crop sentences with speakers", async () => {
+    await clearQueue();
+    const id = await makeProject(fullRaw(), (raw) => {
+      (raw as { automation: unknown }).automation = { approval_gates: { before_render: false, before_publish: true } };
+    });
+    await drain(id);
+    const [row] = await db.select().from(segments).where(and(eq(segments.projectId, id), eq(segments.segmentId, "seg_010")));
+    expect((row.lineTimings as { line_id: string }[]).map((l) => l.line_id)).toEqual(["seg_010_l1", "seg_010_l2", "seg_010_l3"]);
+    const crop = (await project(id)).outputs as { crop: { segments: Record<string, { sentences: { speaker?: string }[] }> } };
+    expect(crop.crop.segments.seg_010.sentences.map((s) => s.speaker)).toContain("mara");
+    expect(crop.crop.segments.seg_002.sentences.every((s) => s.speaker === "narrator")).toBe(true);
+    const voiceTask = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "voice"))))[0];
+    const hydrated = (await hydrateTask(db, voiceTask, "https://site.test")) as { payload: { episode: Episode } };
+    expect(Object.keys(hydrated.payload.episode.voices).sort()).toEqual(["dex", "mara", "narrator"]);
+  });
+
+  it("registers channel characters, expands refs in a later story and reuses approved sheets", async () => {
+    await clearQueue();
+    const { approveMaster, masterCandidates } = await import("@/lib/pipeline/story");
+    const { loadCastRegistry } = await import("@/lib/pipeline/cast");
+    const origin = bibleRaw();
+    origin.story_id = "cast-origin";
+    const first = await ingestDocument(db, JSON.stringify(origin));
+    expect(first.error).toBeNull();
+    const registry = await loadCastRegistry(db);
+    expect(registry.get("mara")?.origin_story_id).toBe("rooftop-test");
+
+    // Approve Mara's sheet in the story that defined her, so later stories start from it.
+    const sheet = await ready({ storyId: "rooftop-test" }, null, "master/char/mara/default", "image/png");
+    await getStorage().put(sheet.storageKey, new Uint8Array([1, 2, 3]), "image/png");
+    await approveMaster(db, "rooftop-test", "char/mara/default", sheet.id);
+
+    const second = await ingestDocument(db, fixture("story_bible_second.json"));
+    expect(second.validation.errors).toEqual([]);
+    expect(second.error).toBeNull();
+    const [story] = await db.select().from(stories).where(eq(stories.id, "harbour-test"));
+    const mara = (story.bible as StoryBible).characters.find((c) => c.id === "mara")!;
+    expect(mara.visual_description).toBe("a tall stick figure with a black ponytail and round glasses");
+    expect(mara.outfit_states.map((o) => o.id)).toEqual(["default", "wetsuit"]);
+    const [reused] = await db
+      .select()
+      .from(storyMasters)
+      .where(and(eq(storyMasters.storyId, "harbour-test"), eq(storyMasters.masterKey, "char/mara/default")));
+    expect(reused.status).toBe("approved");
+    const copies = await masterCandidates(db, "harbour-test", "char/mara/default");
+    expect(copies[0].storageKey).not.toBe(sheet.storageKey);
+
+    const changed = JSON.parse(fixture("story_bible_second.json"));
+    changed.characters[0] = { ...bibleRaw().characters[1], visual_description: "short, red hair" };
+    const rejected = await ingestDocument(db, JSON.stringify(changed));
+    expect(rejected.error).toMatch(/Channel character "mara" can't be changed by this story/);
+  });
+
+  it("promotes a story character to the channel cast, never back", async () => {
+    const { promoteCharacter } = await import("@/lib/pipeline/story");
+    const { loadCastRegistry } = await import("@/lib/pipeline/cast");
+    await promoteCharacter(db, "harbour-test", "harbourmaster");
+    expect((await loadCastRegistry(db)).get("harbourmaster")?.origin_story_id).toBe("harbour-test");
+    await expect(promoteCharacter(db, "harbour-test", "harbourmaster")).rejects.toThrow(/already in the channel cast/);
+
+    const [story] = await db.select().from(stories).where(eq(stories.id, "harbour-test"));
+    const b = StoredStoryBibleSchema.parse(story.bible);
+    const demoted = structuredClone(b);
+    demoted.characters.find((c) => c.id === "harbourmaster")!.scope = "story";
+    expect(supersetProblems(b, demoted)).toContain("character harbourmaster went from channel to story scope (only story → channel is allowed)");
+  });
+
+  it("queues group master sheets as their own bot task", async () => {
+    const all = await db.select().from(tasks).where(eq(tasks.type, "generate_character_group_master"));
+    expect(all.length).toBeGreaterThan(0);
+    const payload = all[0].payload as { purpose: string; items: { master_key: string }[] };
+    expect(payload.purpose).toBe("character_group_masters");
+    expect(payload.items.every((i) => i.master_key.startsWith("group/"))).toBe(true);
   });
 });

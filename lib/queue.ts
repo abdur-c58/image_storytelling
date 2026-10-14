@@ -5,8 +5,8 @@ import { execRows, type Db } from "@/lib/db";
 import { agents, taskEvents, tasks, type TaskRow } from "@/lib/db/schema";
 
 export type TaskKind = "bot" | "worker";
-export const WORKER_TASK_TYPES = ["voice", "align", "sfx", "cards", "thumbnail_compose", "mix", "render"] as const;
-export const BOT_TASK_TYPES = ["generate_images", "upload_youtube", "generate_location_master"] as const;
+export const WORKER_TASK_TYPES = ["voice", "voice_sample", "align", "sfx", "cards", "thumbnail_compose", "mix", "render"] as const;
+export const BOT_TASK_TYPES = ["generate_images", "upload_youtube", "generate_location_master", "generate_character_group_master"] as const;
 export type WorkerTaskType = (typeof WORKER_TASK_TYPES)[number];
 export type BotTaskType = (typeof BOT_TASK_TYPES)[number];
 export type TaskType = WorkerTaskType | BotTaskType;

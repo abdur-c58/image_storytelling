@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "doc_type": "story_bible",
   "story_id": "rooftop-test",
   "story_title": "Rooftop Test Story",
@@ -20,11 +20,17 @@
     "source_image_min_width": 2560,
     "palette_notes": "Dusty blues and greys, one warm accent per scene."
   },
+  "narrator": {
+    "pov": "second_person",
+    "pov_character_id": "protagonist",
+    "voice": null
+  },
   "characters": [
     {
       "id": "protagonist",
       "name": "You",
       "role": "protagonist",
+      "scope": "story",
       "visual_description": "a stick figure with a round white head and dot eyes",
       "outfit_states": [
         { "id": "beanie", "description": "a mustard yellow beanie and a grey scarf" },
@@ -36,10 +42,26 @@
       "id": "mara",
       "name": "Mara",
       "role": "ally",
+      "scope": "channel",
       "visual_description": "a tall stick figure with a black ponytail and round glasses",
       "outfit_states": [{ "id": "default", "description": "a red hoodie and a backpack" }],
-      "first_appears_episode": 2
+      "first_appears_episode": 1,
+      "voice": { "voice_id": "test-voice-mara", "speed": 1.05, "gain_db": 0, "style_notes": "quick, dry, warm underneath" }
+    },
+    {
+      "id": "dex",
+      "name": "Dex",
+      "role": "ally",
+      "scope": "channel",
+      "visual_description": "a short stocky stick figure with a buzz cut and a bushy grey beard",
+      "outfit_states": [{ "id": "default", "description": "an orange hi-vis vest over a brown work jacket" }],
+      "first_appears_episode": 1,
+      "initial_status": "separated",
+      "voice": { "voice_id": "test-voice-dex", "speed": 0.95, "gain_db": -1, "style_notes": "gravelly, slow, calm" }
     }
+  ],
+  "character_groups": [
+    { "id": "you_and_mara", "character_ids": ["protagonist", "mara"], "description": "two survivors who trust each other" }
   ],
   "scene_bible": {
     "world_variables": [

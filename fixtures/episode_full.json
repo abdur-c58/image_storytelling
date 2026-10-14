@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "doc_type": "episode",
   "story_id": "rooftop-test",
   "series": {
@@ -184,8 +184,7 @@
         "camera_angle_id": "a",
         "world_state": { "day": 1, "weather": "rain" },
         "characters_present": [
-          { "character_id": "protagonist", "outfit_state_id": "bandaged", "pose_or_action": "frozen, staring at the door", "position_in_frame": "right" },
-          { "character_id": "mara", "pose_or_action": "a blurred silhouette behind the door's small window", "position_in_frame": "background", "cameo": true }
+          { "character_id": "protagonist", "outfit_state_id": "bandaged", "pose_or_action": "frozen, staring at the door", "position_in_frame": "right" }
         ]
       },
       "image": {
@@ -199,15 +198,110 @@
     {
       "id": "seg_010",
       "order": 10,
+      "type": "illustration",
+      "lines": [
+        { "id": "seg_010_l1", "speaker": "mara", "text": "It's me. Open up before they hear us.", "voice_effect": "muffled", "on_screen": false },
+        { "id": "seg_010_l2", "speaker": "narrator", "text": "You pulled two planks loose. A tall girl in a red hoodie squeezed through the gap." },
+        {
+          "id": "seg_010_l3",
+          "speaker": "mara",
+          "text": "Thanks. I'm Mara. I saw your light from the next tower.",
+          "tts_text": "[breath] Thanks. I'm Mara. [short pause] I saw your light from the next tower."
+        }
+      ],
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "barricaded",
+        "camera_angle_id": "b",
+        "world_state": { "day": 1, "weather": "rain" },
+        "characters_present": [
+          { "character_id": "protagonist", "outfit_state_id": "bandaged", "pose_or_action": "holding a loose plank", "position_in_frame": "left" },
+          { "character_id": "mara", "outfit_state_id": "default", "pose_or_action": "squeezing through a gap in the planks, soaked", "position_in_frame": "right" }
+        ]
+      },
+      "image": {
+        "prompt": "Rain, a gap between the planks, two figures face to face",
+        "focal_points": [
+          { "label": "protagonist", "x": 0.3, "y": 0.45 },
+          { "label": "mara", "x": 0.7, "y": 0.45 }
+        ]
+      }
+    },
+    {
+      "id": "seg_011",
+      "order": 11,
+      "type": "illustration",
+      "lines": [
+        { "id": "seg_011_l1", "speaker": "narrator", "text": "She told you about Dex, the old radio man who had kept her alive the first night." },
+        { "id": "seg_011_l2", "speaker": "dex", "text": "Keep the volume low, kid. Sound carries up here.", "voice_effect": "memory" }
+      ],
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "clear",
+        "camera_angle_id": "a",
+        "timeframe": "flashback",
+        "visual_treatment": "flashback_tint",
+        "world_state": { "day": 1, "weather": "clear" },
+        "characters_present": [
+          { "character_id": "mara", "outfit_state_id": "default", "pose_or_action": "kneeling beside a radio, listening", "position_in_frame": "left" },
+          { "character_id": "dex", "outfit_state_id": "default", "pose_or_action": "turning the radio dial, a finger to his lips", "position_in_frame": "right" }
+        ]
+      },
+      "image": { "prompt": "Night, a single lantern, the two of them hunched over a radio" }
+    },
+    {
+      "id": "seg_012",
+      "order": 12,
+      "type": "illustration",
+      "lines": [
+        { "id": "seg_012_l1", "speaker": "narrator", "text": "Then the radio on the ledge crackled." },
+        {
+          "id": "seg_012_l2",
+          "speaker": "dex",
+          "text": "Anyone on this channel, stay off the streets. They follow sound. They—",
+          "voice_effect": "radio",
+          "on_screen": false
+        },
+        { "id": "seg_012_l3", "speaker": "mara", "text": "That's Dex. Dex? Dex, answer me!", "tts_text": "That's Dex. [pause] <forceful>Dex? Dex, answer me!</forceful>" }
+      ],
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "barricaded",
+        "camera_angle_id": "b",
+        "world_state": { "day": 1, "weather": "rain" },
+        "characters_present": [
+          { "character_id": "protagonist", "outfit_state_id": "bandaged", "pose_or_action": "staring at the radio", "position_in_frame": "left" },
+          { "character_id": "mara", "outfit_state_id": "default", "pose_or_action": "grabbing the radio with both hands", "position_in_frame": "right" }
+        ],
+        "props_in_frame": ["radio"]
+      },
+      "image": {
+        "prompt": "The hand-crank radio on the wet parapet, its little red light on",
+        "focal_points": [
+          { "label": "radio", "x": 0.55, "y": 0.55 },
+          { "label": "mara", "x": 0.72, "y": 0.45 }
+        ]
+      },
+      "sfx": [
+        { "id": "seg_012_sfx_1", "search_query": "radio static burst", "placement": "at_phrase", "at_phrase": "radio on the ledge crackled" }
+      ]
+    },
+    {
+      "id": "seg_013",
+      "order": 13,
       "type": "title_card",
       "narration": "To be continued.",
       "remotion": { "template": "title_card", "props": { "title": "TO BE CONTINUED", "background": "dark" } }
     }
   ],
+  "character_status_changes": [
+    { "character_id": "dex", "to_status": "missing", "at_segment_id": "seg_012", "cause": "His broadcast cut off mid-sentence." }
+  ],
   "thumbnail": {
-    "image_prompt": "The protagonist pressed against the barricaded door in the rain, wide frightened eyes",
+    "image_prompt": "The protagonist and Mara pressed against the barricaded door in the rain, wide frightened eyes",
     "scene": { "location_id": "rooftop", "state_id": "barricaded", "camera_angle_id": "a", "world_state": { "day": 1, "weather": "rain" } },
-    "characters_present": ["protagonist"],
+    "characters_present": ["protagonist", "mara"],
+    "pairing_layout": "foreground_background",
     "text_layers": [
       { "text": "WHO IS THERE?", "style": "impact_white_black_outline", "position": "top_center" }
     ]
@@ -221,6 +315,7 @@
   "chapters": [
     { "segment_id": "seg_001", "title": "The roof" },
     { "segment_id": "seg_004", "title": "Supplies" },
-    { "segment_id": "seg_008", "title": "The rain" }
+    { "segment_id": "seg_008", "title": "The rain" },
+    { "segment_id": "seg_010", "title": "Mara" }
   ]
 }
