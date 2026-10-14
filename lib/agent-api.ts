@@ -120,6 +120,25 @@ async function sweep(db: Db) {
   for (const { storyId } of legacy) if (storyId) await advanceStory(db, storyId);
 }
 
+const IN_PROGRESS_STATES = ["WAITING_MASTERS", "GENERATING", "IMAGES_RECEIVED", "THUMBNAIL", "MIX", "RENDER", "FAILED"] as const;
+const RECHECK_EVERY_MS = 60_000;
+let lastRecheck = 0;
+
+/**
+ * Episodes only move on task events, so work a finished task left behind (missing images while
+ * another batch runs, retries after a pause) is found here when an agent asks and the queue is empty.
+ */
+async function recheckIdle(db: Db): Promise<boolean> {
+  if (Date.now() - lastRecheck < RECHECK_EVERY_MS) return false;
+  lastRecheck = Date.now();
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.archived, false), inArray(projects.state, [...IN_PROGRESS_STATES])));
+  for (const r of rows) await advance(db, r.id);
+  return rows.length > 0;
+}
+
 /** Width below which an accepted image is flagged for upscaling (the worker upscales before render). */
 async function preferredMinWidth(db: Db, task: TaskRow): Promise<number> {
   if (task.projectId) {
@@ -140,7 +159,9 @@ export async function claimNext(kind: TaskKind, agentId: string, base: string, t
   const allowed = (kind === "bot" ? BOT_TASK_TYPES : WORKER_TASK_TYPES) as readonly string[];
   const filter = types?.length ? types.filter((t) => allowed.includes(t)) : [...allowed];
   if (!filter.length) return null;
-  const task = await leaseNext(db, kind, agentId, kind === "bot" ? env.botLeaseSec : env.workerLeaseSec, filter);
+  const leaseSec = kind === "bot" ? env.botLeaseSec : env.workerLeaseSec;
+  let task = await leaseNext(db, kind, agentId, leaseSec, filter);
+  if (!task && (await recheckIdle(db))) task = await leaseNext(db, kind, agentId, leaseSec, filter);
   if (!task) return null;
   let projectTitle = "";
   if (task.projectId) {
