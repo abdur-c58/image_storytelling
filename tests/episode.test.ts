@@ -285,6 +285,16 @@ describe("voice tags", () => {
     expect(validateEp(ep, { bible: b, state: null }).errors.some((e) => /\[gasp\]/.test(e.message))).toBe(true);
   });
 
+  it("treats an empty tag_whitelist as the defaults and allows two tags on a short line", () => {
+    const b = bible();
+    b.defaults.voice.tag_whitelist = [];
+    const ep = json("episode_full.json");
+    ep.segments[9].tts_text = "Then, through the rain, you heard it. [pause] Three slow knocks [short pause] on the door.";
+    const w = validateEp(ep, { bible: b, state: null }).warnings.map((x) => x.message).join("\n");
+    expect(w).not.toMatch(/seg_010: \[(short )?pause\] is not in voice.tag_whitelist/);
+    expect(w).not.toMatch(/seg_010: .*is dense/);
+  });
+
   it("splits tts_text at pauses for the split_and_silence fallback", () => {
     const chunks = splitAtPauses("[breath] One. [long pause] <whisper>Two [pause] three.</whisper> [short pause]", {
       pause: 700,

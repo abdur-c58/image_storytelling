@@ -40,7 +40,7 @@ import {
   type Voice,
 } from "./schema";
 import { checkAgainstRegistry, expandCast, type CastRegistry } from "./cast";
-import { NARRATOR } from "./constants";
+import { DEFAULT_TAG_WHITELIST, NARRATOR } from "./constants";
 import { normalizeBundleHeader, normalizeEpisodeHeader } from "./header";
 import { segmentText } from "./lines";
 import { segmentSentences } from "./sentences";
@@ -270,7 +270,8 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
     );
   };
 
-  const whitelist = new Set(voice.tag_whitelist.map(normalizeTagName));
+  // An empty list means "not filled in", not "no tags allowed".
+  const whitelist = new Set((voice.tag_whitelist.length ? voice.tag_whitelist : DEFAULT_TAG_WHITELIST).map(normalizeTagName));
   const paired = new Set(voice.paired_tags.map((t) => t.toLowerCase()));
   const lineIds = new Map<string, string>();
 
@@ -301,8 +302,9 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
     for (const tag of new Set(stats.paired)) {
       if (!paired.has(tag)) issues.error(ttsPath, `${label}: <${tag}> is not a supported paired tag (${[...paired].join(", ")}).`);
     }
-    const density = words ? (stats.total / words) * 100 : stats.total ? Infinity : 0;
-    if (density > voice.max_tags_per_100_words) {
+    // Short lines always get two tags; the per-100-words rate only bites on longer text.
+    const allowed = words ? Math.max(2, (voice.max_tags_per_100_words * words) / 100) : 0;
+    if (stats.total > allowed) {
       issues.warn(
         ttsPath,
         `${label}: ${stats.total} tags for ${words} words is dense (limit ${voice.max_tags_per_100_words} per 100 words); heavy tagging degrades delivery.`,
