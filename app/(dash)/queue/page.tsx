@@ -1,9 +1,11 @@
 import { connection } from "next/server";
 import Link from "next/link";
-import { and, asc, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { agents, projects, stories, tasks } from "@/lib/db/schema";
-import { AutoRefresh } from "../projects/[id]/client";
+import { agents, episodes, projects, stories, storyMasters, tasks } from "@/lib/db/schema";
+import { episodeHref } from "@/lib/episode/naming";
+import { ActionButton, AutoRefresh } from "../projects/[id]/client";
+import { StoryActionButton } from "../stories/[id]/client";
 import { ago, PageHeader } from "../ui";
 
 type TaskRow = typeof tasks.$inferSelect;
@@ -71,6 +73,34 @@ export default async function QueuePage({ searchParams }: PageProps<"/queue">) {
     .orderBy(desc(tasks.updatedAt))
     .limit(15);
   const seen = await db.select().from(agents).where(eq(agents.role, kind)).orderBy(desc(agents.lastSeenAt));
+
+  // Work the queue cannot do without you: reviews, failures and approval gates.
+  const masterCounts = await db
+    .select({
+      storyId: storyMasters.storyId,
+      title: stories.title,
+      toReview: sql<number>`count(*) filter (where ${storyMasters.status} = 'generated')`.mapWith(Number),
+      failed: sql<number>`count(*) filter (where ${storyMasters.status} = 'missing' and ${storyMasters.attempts} >= 3)`.mapWith(Number),
+    })
+    .from(storyMasters)
+    .innerJoin(stories, eq(stories.id, storyMasters.storyId))
+    .where(ne(stories.status, "deleted"))
+    .groupBy(storyMasters.storyId, stories.title);
+  const masterNeeds = masterCounts.filter((m) => m.toReview > 0 || m.failed > 0);
+  const stuckEpisodes = await db
+    .select({
+      id: projects.id,
+      storyId: projects.storyId,
+      number: projects.episodeNumber,
+      title: episodes.title,
+      state: projects.state,
+      detail: projects.stateDetail,
+    })
+    .from(episodes)
+    .innerJoin(projects, eq(projects.id, episodes.activeVersionId))
+    .where(and(eq(projects.archived, false), inArray(projects.state, ["FAILED", "REVIEW"])))
+    .orderBy(asc(projects.episodeNumber));
+  const needsYou = masterNeeds.length + stuckEpisodes.length;
 
   const running = open.filter((t) => t.status === "leased");
   const next = open.filter((t) => t.status === "queued" && t.availableAt <= now);
@@ -144,6 +174,52 @@ export default async function QueuePage({ searchParams }: PageProps<"/queue">) {
         The {kind} takes one task at a time: highest priority first, then oldest. This page refreshes every 5 seconds.
       </p>
 
+      {needsYou > 0 && (
+        <section className="mb-8">
+          <h2 className="eyebrow mb-3">Needs you ({needsYou})</h2>
+          <div className="flex flex-col gap-2">
+            {masterNeeds.map((m) => (
+              <div key={m.storyId} className="card flex flex-col gap-2 border-warn/40 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    <Link href={`/stories/${encodeURIComponent(m.storyId)}?tab=bible`} className="hover:underline">
+                      {m.title}
+                    </Link>
+                  </p>
+                  <p className="text-xs text-muted">
+                    {[
+                      m.toReview ? `${m.toReview} master${m.toReview === 1 ? "" : "s"} waiting for your approval; episode images that use them wait too` : "",
+                      m.failed ? `${m.failed} master${m.failed === 1 ? "" : "s"} failed 3 times (press Regenerate on them)` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                {m.toReview > 0 && (
+                  <StoryActionButton storyId={m.storyId} action={{ kind: "approve_all" }} label={`Approve all ${m.toReview}`} primary small />
+                )}
+              </div>
+            ))}
+            {stuckEpisodes.map((e) => (
+              <div key={e.id} className="card flex flex-col gap-2 border-warn/40 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    <Link href={e.storyId ? episodeHref(e.storyId, e.number) : `/projects/${encodeURIComponent(e.id)}`} className="hover:underline">
+                      Ep. {e.number}: {e.title}
+                    </Link>{" "}
+                    <span className={`text-xs font-normal ${e.state === "FAILED" ? "text-bad" : "text-warn"}`}>
+                      {e.state === "FAILED" ? "failed" : "waiting for your approval"}
+                    </span>
+                  </p>
+                  <p className="break-words text-xs text-muted">{e.detail}</p>
+                </div>
+                {e.state === "FAILED" && <ActionButton projectId={e.id} action={{ kind: "retry" }} label="Retry failed" primary small />}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="mb-8">
         <h2 className="eyebrow mb-3">Running now ({running.length})</h2>
         {running.length === 0 && <p className="text-sm font-light text-muted">Nothing is running.</p>}
@@ -171,7 +247,9 @@ export default async function QueuePage({ searchParams }: PageProps<"/queue">) {
 
       <section className="mb-8">
         <h2 className="eyebrow mb-3">Up next ({next.length})</h2>
-        {next.length === 0 && <p className="text-sm font-light text-muted">The queue is empty.</p>}
+        {next.length === 0 && (
+          <p className="text-sm font-light text-muted">The queue is empty.{needsYou > 0 ? " Everything else is waiting on the items under Needs you." : ""}</p>
+        )}
         <div className="flex flex-col gap-2">
           {next.map((t, i) => (
             <div key={t.id} className="card flex items-center gap-3">

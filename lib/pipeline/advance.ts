@@ -168,6 +168,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
 
     /** Queue a stage whose outputs are missing, with a guard against empty completions. */
     const runStage = async (type: TaskType, payload: Record<string, unknown>, opts: Partial<Parameters<typeof createTask>[1]> = {}) => {
+      if (dead.some((t) => t.type === type)) return;
       const doneCount = ofType(type).filter((t) => t.status === "done").length;
       if (doneCount >= MAX_EMPTY_COMPLETIONS) {
         failure ??= `Stage "${type}" finished ${doneCount} times without producing all outputs (${missing(type).slice(0, 5).join(", ")}).`;
@@ -176,40 +177,47 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       created.push(await createTask(tx, { projectId, kind: "worker", type, payload, ...opts }));
     };
 
-    if (!failure && dead.length === 0) {
+    // A dead task stops only its own stage and whatever needs its output; independent stages keep going.
+    const deadKinds = new Set(dead.map((t) => (isThumbnailImageTask(t) ? "thumbnail_images" : t.type)));
+
+    if (!failure) {
       // ── Images (bot) ─────────────────────────────────────────────
       const segImageTasks = ofType("generate_images").filter((t) => !isThumbnailImageTask(t));
       const missingImages = req.images.filter((id) => !has(assetKeys.image(id)));
-      if (missingImages.length && !segImageTasks.some(isActive)) {
+      if (missingImages.length && !segImageTasks.some(isActive) && !deadKinds.has("generate_images")) {
         const imgTrigger = trigger(ep, "generate_images");
         const wanted = buildImageItems(ep).filter((i) => missingImages.includes(i.segment_id));
         for (const item of wanted) for (const k of waitsOn(item)) waitingFor.add(k);
-        // All or nothing: images of one episode are generated against the same approved masters.
-        const items = waitingFor.size ? [] : wanted;
-        const isRetry = segImageTasks.length > 0;
-        if (isRetry && items.length) {
+        // Segments whose masters are all approved go now; the rest follow as their masters are approved.
+        const items = wanted.filter((i) => waitsOn(i).length === 0);
+        const askedBefore = new Set(
+          segImageTasks.flatMap((t) => ((t.payload as { items?: { segment_id: string }[] }).items ?? []).map((i) => i.segment_id)),
+        );
+        const retried = items.filter((i) => askedBefore.has(i.segment_id)).map((i) => i.segment_id);
+        if (retried.length) {
           await tx
             .update(segments)
             .set({ imageAttempts: sql`${segments.imageAttempts} + 1` })
-            .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, missingImages)));
+            .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, retried)));
           const rows = await tx
             .select()
             .from(segments)
-            .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, missingImages)));
+            .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, retried)));
           const exhausted = rows.filter((r) => r.imageAttempts >= env.maxImageAttempts).map((r) => r.segmentId);
           if (exhausted.length) failure = `Images still missing after ${env.maxImageAttempts} attempts: ${exhausted.join(", ")}.`;
         }
         if (!failure) {
           const batches = chunk(items, imgTrigger?.batch_size ?? 8);
+          const round = segImageTasks.length ? String(segImageTasks.length) : "";
           for (const [i, batch] of batches.entries()) {
             created.push(
               await createTask(tx, {
                 projectId,
                 kind: "bot",
                 type: "generate_images",
-                scope: `${isRetry ? `retry${segImageTasks.length}` : "batch"}:${String(i + 1).padStart(2, "0")}`,
+                scope: `${retried.length ? "retry" : "batch"}${round}:${String(i + 1).padStart(2, "0")}`,
                 payload: imageTaskPayload(projectId, ep, batch, "segments"),
-                priority: isRetry ? 15 : 10,
+                priority: retried.length ? 15 : 10,
                 maxAttempts: imgTrigger?.retry.max_attempts ?? 3,
                 backoffSec: imgTrigger?.retry.backoff_sec ?? 60,
                 timeoutMinutes: imgTrigger?.timeout_minutes ?? 180,
@@ -225,7 +233,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const thumbItems = buildThumbnailItems(ep).filter((i) => missingBases.includes(Number(i.asset_key.split("/")[1])));
       const thumbWaits = thumbItems.flatMap(waitsOn);
       for (const k of thumbWaits) waitingFor.add(k);
-      if (!failure && missingBases.length && !thumbTasks.some(isActive) && !thumbWaits.length) {
+      if (!failure && missingBases.length && !thumbTasks.some(isActive) && !thumbWaits.length && !deadKinds.has("thumbnail_images")) {
         if (thumbTasks.filter((t) => t.status === "done").length >= env.maxImageAttempts) {
           failure = "Thumbnail base image still missing after repeated attempts.";
         } else {
@@ -299,7 +307,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const outputsMeta = project.outputs as { description?: string; description_error?: string | null };
 
       const publishTasks = ofType("upload_youtube");
-      if (renderReady && thumbReady && !project.publishedAt && !publishTasks.some(isLive)) {
+      if (renderReady && thumbReady && !project.publishedAt && !publishTasks.some(isLive) && !deadKinds.has("upload_youtube")) {
         if (outputsMeta.description_error) {
           failure = outputsMeta.description_error;
         } else if (ep.automation.approval_gates.before_publish && !project.approvedPublishAt) {
@@ -326,7 +334,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const activeTypes = new Set(allTasks.filter(isActive).map((t) => t.type));
       let state: ProjectState;
       if (project.publishedAt) state = "PUBLISHED";
-      else if (failure) state = "FAILED";
+      else if (failure || dead.length) state = "FAILED";
       else if (activeTypes.has("upload_youtube")) state = "PUBLISH_REQUESTED";
       else if (waiting) state = "REVIEW";
       else if (waitingFor.size && missingImages.length) state = "WAITING_MASTERS";
@@ -339,8 +347,10 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       else state = "GENERATING";
 
       const imagesDone = req.images.length - missingImages.length;
+      const deadSummary = dead.map((t) => `${t.type}(${t.scope}): ${t.error ?? "failed"}`).join("; ");
       const detail =
         failure ??
+        (dead.length ? `Dead-lettered: ${deadSummary}. Press Retry failed; stages that do not need it keep going.` : null) ??
         waiting ??
         [
           waitingFor.size ? `waiting for ${waitingFor.size} story master(s) to be approved` : "",

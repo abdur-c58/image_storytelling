@@ -20,7 +20,7 @@ import { rerollCrops } from "@/lib/pipeline/crop";
 import { ingestDocument } from "@/lib/pipeline/ingest";
 import { hydrateTask } from "@/lib/pipeline/payloads";
 import { assetKeys, orderedSegments, requirements } from "@/lib/pipeline/requirements";
-import { advanceStory, approveAllGenerated, MASTER_PRIORITY, masterDemand, saveStory, supersetProblems } from "@/lib/pipeline/story";
+import { advanceStory, approveAllGenerated, approveMaster, MASTER_PRIORITY, masterDemand, saveStory, supersetProblems } from "@/lib/pipeline/story";
 import { completeTask, createTask, failTask, heartbeatTask, leaseNext, reapExpired } from "@/lib/queue";
 import { getStorage, projectObjectPrefix } from "@/lib/storage";
 
@@ -400,6 +400,48 @@ describe("stories (schema 2.0)", () => {
 
     const again = await ingestDocument(db, text);
     expect(again.validation.errors).toEqual([]);
+  });
+
+  it("starts images for segments whose masters are approved while the rest wait", async () => {
+    await clearQueue();
+    const bundle = { schema_version: "2.0", doc_type: "bundle", story_bible: bibleRaw(), episode: fullRaw() };
+    bundle.story_bible.story_id = "partial-story";
+    bundle.episode.story_id = "partial-story";
+    const out = await ingestDocument(db, JSON.stringify(bundle));
+    expect(out.error).toBeNull();
+    const id = out.projectId!;
+    await drain(id, { types: ["generate_location_master", "generate_character_group_master"] });
+
+    const segs = await db.select().from(segments).where(eq(segments.projectId, id));
+    const keyed = segs.filter((s) => (s.masterKeys as string[]).length);
+    const approved = new Set(keyed[0].masterKeys as string[]);
+    for (const k of approved) await approveMaster(db, "partial-story", k);
+
+    const imageTasks = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "generate_images")))).filter(
+      (t) => !t.scope.startsWith("thumbnail"),
+    );
+    const asked = new Set(imageTasks.flatMap((t) => (t.payload as { items: ImageItem[] }).items.map((i) => i.segment_id)));
+    const ready = segs.filter((s) => (s.masterKeys as string[]).every((k) => approved.has(k))).map((s) => s.segmentId);
+    const blocked = segs.filter((s) => !(s.masterKeys as string[]).every((k) => approved.has(k))).map((s) => s.segmentId);
+    expect(asked.has(keyed[0].segmentId)).toBe(true);
+    expect(blocked.length).toBeGreaterThan(0);
+    for (const s of blocked) expect(asked.has(s)).toBe(false);
+    for (const s of ready.filter((r) => segs.find((x) => x.segmentId === r)!.finalPrompt)) expect(asked.has(s)).toBe(true);
+    expect((await project(id)).state).toBe("WAITING_MASTERS");
+  });
+
+  it("a dead task stops only the stages that need it", async () => {
+    await clearQueue();
+    const id = await makeProject(fullRaw());
+    await db.update(tasks).set({ status: "dead", error: "boom" }).where(and(eq(tasks.projectId, id), eq(tasks.type, "cards")));
+    await db.update(tasks).set({ status: "cancelled" }).where(and(eq(tasks.projectId, id), eq(tasks.type, "generate_images")));
+    await advance(db, id);
+    const live = await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.status, "queued")));
+    expect(live.some((t) => t.type === "generate_images")).toBe(true);
+    expect(live.some((t) => t.type === "cards")).toBe(false);
+    const p = await project(id);
+    expect(p.state).toBe("FAILED");
+    expect(p.stateDetail).toMatch(/cards\(all\): boom/);
   });
 
   it("withdraws queued master batches no episode needs, but leaves a leased one alone", async () => {
