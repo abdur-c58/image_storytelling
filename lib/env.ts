@@ -20,7 +20,10 @@ export const env = {
     return read("ADMIN_PASSWORD");
   },
   get appBaseUrl(): string {
-    return read("APP_BASE_URL").replace(/\/$/, "");
+    const url = read("APP_BASE_URL").replace(/\/$/, "");
+    // A deployed site handing out localhost links breaks every bot and worker download; fall back to the request host.
+    if (process.env.VERCEL && /^https?:\/\/(localhost|127\.0\.0\.1)(:|$)/i.test(url)) return "";
+    return url;
   },
   get storageDriver(): "r2" | "local" {
     return read("STORAGE_DRIVER", read("R2_BUCKET_NAME") ? "r2" : "local") === "r2" ? "r2" : "local";
