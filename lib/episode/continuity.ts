@@ -136,19 +136,24 @@ export function checkBibleAdditions(bible: StoryBible, add: BibleAdditions, issu
   const appendOnly = "bible_additions can only add; change the story bible instead.";
   const newLocations = new Map(add.locations.map((l) => [l.id, l]));
   const locById = (id: string) => bible.scene_bible.locations.find((l) => l.id === id) ?? newLocations.get(id);
+  // An addition already merged into the story (a re-imported episode) is fine when it is unchanged.
+  const conflicts = <T extends { id: string }>(list: T[], item: T) => {
+    const found = list.find((x) => x.id === item.id);
+    return !!found && JSON.stringify(found) !== JSON.stringify(item);
+  };
 
   add.characters.forEach((c, i) => {
-    if (bible.characters.some((x) => x.id === c.id)) issues.error(at("characters", i, "id"), `Character "${c.id}" already exists; ${appendOnly}`);
+    if (conflicts(bible.characters, c)) issues.error(at("characters", i, "id"), `Character "${c.id}" already exists; ${appendOnly}`);
   });
   add.world_variables.forEach((v, i) => {
-    if (bible.scene_bible.world_variables.some((x) => x.id === v.id)) {
+    if (conflicts(bible.scene_bible.world_variables, v)) {
       issues.error(at("world_variables", i, "id"), `World variable "${v.id}" already exists; ${appendOnly}`);
     }
     const bad = checkWorldValue(v, v.initial);
     if (bad) issues.error(at("world_variables", i, "initial"), bad);
   });
   add.locations.forEach((l, i) => {
-    if (bible.scene_bible.locations.some((x) => x.id === l.id)) issues.error(at("locations", i, "id"), `Location "${l.id}" already exists; ${appendOnly}`);
+    if (conflicts(bible.scene_bible.locations, l)) issues.error(at("locations", i, "id"), `Location "${l.id}" already exists; ${appendOnly}`);
   });
   const attach = <T extends { id: string }>(
     list: { location_id: string; item: T }[],
@@ -159,7 +164,7 @@ export function checkBibleAdditions(bible: StoryBible, add: BibleAdditions, issu
     list.forEach(({ location_id, item }, i) => {
       const loc = locById(location_id);
       if (!loc) issues.error(at(key, i, "location_id"), `Unknown location "${location_id}".`);
-      else if (pick(loc).some((x) => x.id === item.id)) issues.error(at(key, i), `${location_id} already has ${what} "${item.id}"; ${appendOnly}`);
+      else if (conflicts(pick(loc), item)) issues.error(at(key, i), `${location_id} already has ${what} "${item.id}"; ${appendOnly}`);
     });
   };
   attach(add.location_states.map((x) => ({ location_id: x.location_id, item: x.state })), "location_states", (l) => l.states, "state");
@@ -176,7 +181,7 @@ export function checkBibleAdditions(bible: StoryBible, add: BibleAdditions, issu
   add.outfit_states.forEach(({ character_id, outfit }, i) => {
     const c = bible.characters.find((x) => x.id === character_id) ?? add.characters.find((x) => x.id === character_id);
     if (!c) issues.error(at("outfit_states", i, "character_id"), `Unknown character "${character_id}".`);
-    else if (c.outfit_states.some((o) => o.id === outfit.id)) {
+    else if (conflicts(c.outfit_states, outfit)) {
       issues.error(at("outfit_states", i), `${character_id} already has outfit "${outfit.id}"; ${appendOnly}`);
     }
   });

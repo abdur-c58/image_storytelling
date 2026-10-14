@@ -4,14 +4,30 @@ import { notFound } from "next/navigation";
 import { presignAssetGet, readyAssetMap } from "@/lib/assets";
 import { getDb } from "@/lib/db";
 import { projects, segments, sfxCues, taskEvents, tasks } from "@/lib/db/schema";
+import type { CropKeyframe } from "@/lib/crop/plan";
+import type { SentenceTiming } from "@/lib/crop/sentences";
+import type { StoryStateSnapshot } from "@/lib/episode/continuity";
+import type { PromptPart } from "@/lib/episode/prompt";
+import { isResolvedV2 } from "@/lib/episode/resolve";
 import type { Episode } from "@/lib/episode/schema";
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
+import type { CropSummary } from "@/lib/pipeline/crop";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "@/lib/pipeline/requirements";
 import { ago, fmtSec, StateBadge } from "../../ui";
-import { ActionButton, AutoRefresh, CopyButton, DeleteProjectButton } from "./client";
+import { ActionButton, AutoRefresh, CopyButton, CropToggle, DeleteProjectButton } from "./client";
+import { CropStrip, PromptInspector } from "./inspect";
 
-const ACTIVE_STATES = new Set(["VALIDATED", "GENERATING", "IMAGES_RECEIVED", "THUMBNAIL", "MIX", "RENDER", "PUBLISH_REQUESTED"]);
+const ACTIVE_STATES = new Set([
+  "VALIDATED",
+  "GENERATING",
+  "WAITING_MASTERS",
+  "IMAGES_RECEIVED",
+  "THUMBNAIL",
+  "MIX",
+  "RENDER",
+  "PUBLISH_REQUESTED",
+]);
 const STAGES = ["generate_images", "voice", "sfx", "cards", "align", "thumbnail_compose", "mix", "render", "upload_youtube"];
 
 interface SfxCandidate {
@@ -49,7 +65,13 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
     chapters_problem?: string | null;
     duration_sec?: number;
     mix_report?: Record<string, unknown> | null;
+    crop?: CropSummary;
+    story_state_end?: StoryStateSnapshot;
+    story_state_committed_at?: string;
   };
+  const v2 = isResolvedV2(ep);
+  const storyTitle = v2 ? ep.story.story_title : null;
+  const cropSegments = outputs.crop?.segments ?? {};
   const stem = `${ep.series.series_id}-ep${ep.series.episode_number}`;
   const [videoUrl, previewUrl, thumbUrl, captionsUrl, reportUrl] = await Promise.all([
     url(assetKeys.video, `${stem}.mp4`),
@@ -76,8 +98,11 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <span className="eyebrow">
-            <Link href={`/series/${encodeURIComponent(ep.series.series_id)}`} className="transition-colors hover:text-foreground">
-              {ep.series.series_title}
+            <Link
+              href={project.storyId ? `/stories/${encodeURIComponent(project.storyId)}` : `/series/${encodeURIComponent(ep.series.series_id)}`}
+              className="transition-colors hover:text-foreground"
+            >
+              {storyTitle ?? ep.series.series_title}
             </Link>{" "}
             · Episode {ep.series.episode_number}
           </span>
@@ -109,6 +134,14 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
             <>
               <ActionButton projectId={id} action={{ kind: "rerender" }} label="Re-mix & re-render" />
               <ActionButton projectId={id} action={{ kind: "regen_thumbnail" }} label="New thumbnail image" />
+              {outputs.crop && (
+                <ActionButton
+                  projectId={id}
+                  action={{ kind: "reroll_crops" }}
+                  label="Re-roll all crops"
+                  confirm="Draw new crops for every segment? Only the render re-runs."
+                />
+              )}
             </>
           )}
           {!project.archived && (
@@ -192,6 +225,29 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
         </div>
       </section>
 
+      {project.storyId && outputs.story_state_end && (
+        <section className="card flex flex-col gap-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="eyebrow">Story state after this episode</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              {outputs.story_state_committed_at ? (
+                <span className="chip text-ok">committed {ago(outputs.story_state_committed_at)}</span>
+              ) : (
+                <ActionButton
+                  projectId={id}
+                  action={{ kind: "commit_story_state" }}
+                  label="Commit to story"
+                  small
+                  confirm="Record this episode's end state on the story now? (Publishing does this automatically.)"
+                />
+              )}
+              <CopyButton text={JSON.stringify(outputs.story_state_end, null, 2)} label="Copy JSON" />
+            </div>
+          </div>
+          <StateSummary snapshot={outputs.story_state_end} />
+        </section>
+      )}
+
       <section className="card flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <h2 className="eyebrow">YouTube description</h2>
@@ -211,6 +267,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
               <th>Segment</th>
               <th>Narration</th>
               <th>Timing</th>
+              {v2 && <th>Crops</th>}
               <th>QA</th>
               <th />
             </tr>
@@ -218,7 +275,12 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
           <tbody>
             {segRows.map((row) => {
               const seg = segById.get(row.segmentId);
-              const qa = row.qa as { wer?: number | null; flagged?: boolean; transcript?: string | null };
+              const qa = row.qa as { wer?: number | null; flagged?: boolean; transcript?: string | null; tag_leak?: string[] };
+              const cropInfo = cropSegments[row.segmentId] as
+                | { sentences: SentenceTiming[]; crop_plan: CropKeyframe[]; enabled: boolean | null }
+                | undefined;
+              const parts = row.promptParts as PromptPart[];
+              const masterKeys = row.masterKeys as string[];
               const preview = segPreview.get(row.segmentId);
               const voice = voiceUrls.get(row.segmentId);
               const hasImage = req.images.includes(row.segmentId);
@@ -241,21 +303,53 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                     <p>{row.narration || <span className="text-muted">(silent)</span>}</p>
                     {row.finalPrompt && (
                       <details className="mt-1 text-muted">
-                        <summary className="cursor-pointer">final prompt</summary>
-                        <p className="mt-1 whitespace-pre-wrap">{row.finalPrompt}</p>
+                        <summary className="cursor-pointer">{parts.length ? "prompt inspector" : "final prompt"}</summary>
+                        {parts.length ? (
+                          <PromptInspector parts={parts} masterKeys={masterKeys} negative={row.negativePrompt} />
+                        ) : (
+                          <p className="mt-1 whitespace-pre-wrap">{row.finalPrompt}</p>
+                        )}
                       </details>
                     )}
+                    {row.voiceMode !== "normal" && <p className="mt-1 text-warn">voice: {row.voiceMode.replace(/_/g, " ")}</p>}
                     {voice && <audio src={voice} controls preload="none" className="mt-1 h-7 w-full" />}
                   </td>
                   <td className="pr-2 font-mono text-muted">
                     {fmtSec(row.startSec)}–{fmtSec(row.endSec)}
                     <div>voice {row.audioDurationSec ? `${row.audioDurationSec.toFixed(1)}s` : "–"}</div>
                   </td>
+                  {v2 && (
+                    <td className="pr-2">
+                      {cropInfo && row.startSec !== null && row.endSec !== null && hasPicture(row.type) ? (
+                        <div className="flex flex-col gap-1">
+                          <CropStrip start={row.startSec} end={row.endSec} sentences={cropInfo.sentences} plan={cropInfo.crop_plan} />
+                          {!project.publishedAt && (
+                            <div className="flex flex-wrap items-center gap-1">
+                              <CropToggle projectId={id} segmentId={row.segmentId} enabled={row.cropEnabled} />
+                              <ActionButton
+                                projectId={id}
+                                action={{ kind: "reroll_crops", segmentId: row.segmentId }}
+                                label="Re-roll"
+                                small
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted">{hasPicture(row.type) ? "after alignment" : "–"}</span>
+                      )}
+                    </td>
+                  )}
                   <td className="pr-2">
                     {qa.wer !== undefined && qa.wer !== null && (
                       <span className={qa.flagged ? "text-bad" : "text-ok"} title={qa.transcript ?? ""}>
                         WER {qa.wer.toFixed(2)}
                       </span>
+                    )}
+                    {qa.tag_leak && qa.tag_leak.length > 0 && (
+                      <p className="text-bad" title="Whisper heard these tag words; Fish read a tag aloud.">
+                        tag spoken: {qa.tag_leak.join(", ")}
+                      </p>
                     )}
                   </td>
                   <td className="flex flex-col gap-1 py-2">
@@ -365,6 +459,26 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
         </div>
       </section>
     </div>
+  );
+}
+
+const hasPicture = (type: string) => type !== "title_card" && type !== "infographic";
+
+function StateSummary({ snapshot }: { snapshot: StoryStateSnapshot }) {
+  const rows: [string, string][] = [
+    ...Object.entries(snapshot.locations).map(([k, v]): [string, string] => [`location ${k}`, v]),
+    ...Object.entries(snapshot.world).map(([k, v]): [string, string] => [k, String(v)]),
+    ...Object.entries(snapshot.outfits).map(([k, v]): [string, string] => [`outfit ${k}`, v]),
+  ];
+  return (
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
+      {rows.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="font-light text-muted">{k}</dt>
+          <dd className="font-mono">{v}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

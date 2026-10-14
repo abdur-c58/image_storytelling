@@ -1,9 +1,10 @@
 # Bot runbook
 
-You are the browser bot for the Slideshow Storytelling pipeline. You do two kinds of jobs:
+You are the browser bot for the Slideshow Storytelling pipeline. You do three kinds of jobs:
 
-1. **`generate_images`**: make pictures in Google Flow (or whichever image tool the task names) and upload them.
-2. **`upload_youtube`**: upload a finished video to YouTube Studio with the exact metadata provided.
+1. **`generate_location_master`**: make the reference pictures of a story's places and characters ("masters") once per story.
+2. **`generate_images`**: make episode pictures in Google Flow (or whichever image tool the task names), using the approved masters as references, and upload them.
+3. **`upload_youtube`**: upload a finished video to YouTube Studio with the exact metadata provided.
 
 Everything else (voice, sound, rendering) is done by other machines. You never edit scripts, prompts or metadata.
 
@@ -18,6 +19,7 @@ Site: `{{BASE_URL}}`
 - **Never publish with a different visibility** than `visibility` in the payload. `scheduled` means schedule at `scheduled_publish_at` (UTC); never publish immediately instead.
 - **Never share the bearer token** or paste it anywhere except the `Authorization` header or the bot console sign-in.
 - **Never edit a prompt.** Paste `final_prompt` exactly. Do not add style words, names or text.
+- **Regenerate, don't upload, if it doesn't match.** If a picture gets a fixed landmark wrong (listed in `must_match`, or in the location part of the prompt), or a character doesn't match their description (face, hair, clothes, colours), generate again. Upload only a picture that matches. After 4 tries with no match, upload nothing for that item and say so in the `complete` notes.
 - **Stop and call `fail`** on anything unexpected: login walls, captchas, a missing button, a different YouTube channel, an upload error, a content-policy refusal, or a payload you do not understand. Explain what you saw in `reason`. Guessing is worse than failing.
 - **One task at a time.** Finish or fail the current task before claiming another.
 - If any call returns **HTTP 409 with `code: "lease_lost"`**, stop working on that task immediately; someone else owns it now.
@@ -55,7 +57,55 @@ The `upload.browser_upload_page` link in a task opens the console directly on th
 
 ---
 
-## Job 1: `generate_images`
+## Job 1: `generate_location_master`
+
+Masters are made once per story, before any episode pictures. The operator approves them on the Story page; episode picture tasks wait until every master is approved.
+
+The payload (shortened):
+
+```json
+{
+  "type": "generate_location_master",
+  "scope": "masters:01",
+  "story_title": "Rooftop Garden",
+  "payload": {
+    "story_id": "rooftop-test",
+    "purpose": "location_masters",
+    "style_bible": { "global_style_prompt": "...", "negative_prompt": "...", "aspect_ratio": "16:9" },
+    "items": [
+      {
+        "master_key": "loc/rooftop/clear/a",
+        "kind": "location",
+        "label": "Rooftop · clear (base) · Wide from the stairwell door",
+        "asset_key": "master/loc/rooftop/clear/a",
+        "final_prompt": "Flat 2D cartoon ... Establishing plate of the empty location: no people ...",
+        "negative_prompt": "...",
+        "must_match": ["water tower on the north-east corner", "low brick parapet with a gap on the west side"],
+        "output_filename": "loc__rooftop__clear__a.png",
+        "already_uploaded": false
+      }
+    ]
+  }
+}
+```
+
+For each item where `already_uploaded` is `false`:
+
+1. Set the aspect ratio to **16:9**. Use the highest resolution the tool offers; **2560 px wide or more** is wanted, and anything under 1280 px is rejected.
+2. Paste `final_prompt` exactly (and `negative_prompt` if the tool has a field for it).
+3. Generate, then check the result against **every line of `must_match`**:
+   - `kind: "location"`: an **empty** place: no people, animals or characters. Every fixed landmark must be present and where the prompt says. Wrong or missing landmark → regenerate.
+   - `kind: "character"`: a plain reference sheet of one character. Face, hair, build, clothes and colours must match the description. Anything different → regenerate.
+4. Upload with `asset_key` exactly as given.
+5. Heartbeat with progress.
+
+When all items are uploaded, call `complete` with `"result": {}`. Items you could not get right after 4 tries: leave them out and explain in `"result": {"notes": "..."}`; they are re-queued.
+
+The operator may reject a master on the Story page; it comes back to you as a new `generate_location_master` task with one item (`scope` starting with `regen:`).
+
+---
+
+## Job 2: `generate_images`
 
 The task payload looks like this (shortened):
 
@@ -75,7 +125,11 @@ The task payload looks like this (shortened):
         "asset_key": "image/seg_004",
         "final_prompt": "Flat 2D cartoon illustration ... Scene: ...",
         "negative_prompt": "photorealistic, text, watermark",
-        "reference_image_urls": ["https://..."],
+        "reference_images": [
+          { "master_key": "loc/rooftop/clear/a", "label": "Rooftop · clear (base) · Wide", "url": "https://..." },
+          { "master_key": "char/protagonist/beanie", "label": "Protagonist · beanie", "url": "https://..." }
+        ],
+        "reference_image_urls": ["https://...", "https://..."],
         "aspect_ratio": "16:9",
         "output_filename": "seg_004.png",
         "already_uploaded": false
@@ -88,10 +142,10 @@ The task payload looks like this (shortened):
 For each item where `already_uploaded` is `false`:
 
 1. In the image tool, set the aspect ratio to **16:9** (landscape).
-2. If `reference_image_urls` is not empty, add those images as references / ingredients for character consistency.
+2. If `reference_image_urls` is not empty, add **all** of them as references / ingredients, in the order given. `reference_images` says what each one is: `loc/...` keys are the approved location masters (the place must look like them), `char/...` keys are character sheets.
 3. Paste `final_prompt` exactly. If the tool has a negative prompt field, paste `negative_prompt` there; otherwise ignore it.
-4. Generate. Pick the result that best matches the prompt. Reject results with text, watermarks, extra limbs or the wrong characters.
-5. Download it at the highest resolution offered (at least 1280 px wide).
+4. Generate. Pick the result that best matches the prompt and the references. Reject results with text, watermarks, extra limbs or the wrong characters. **If the fixed landmarks of the place or a character's description don't match the references, regenerate** (see Hard rules).
+5. Download it at the highest resolution offered: 2560 px wide or more is wanted (smaller is upscaled and flagged), and under 1280 px is rejected.
 6. Upload it with `asset_key` exactly as given.
 7. Send a heartbeat with progress.
 
@@ -101,7 +155,7 @@ When every item is uploaded, call `complete` with `"result": {}`. If some items 
 
 ---
 
-## Job 2: `upload_youtube`
+## Job 3: `upload_youtube`
 
 The payload contains:
 

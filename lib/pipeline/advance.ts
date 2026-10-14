@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { readyAssetMap } from "@/lib/assets";
 import type { Db } from "@/lib/db";
 import { assets, projects, segments, stories, storyMasters, tasks, type ProjectRow, type TaskRow } from "@/lib/db/schema";
@@ -112,15 +112,18 @@ export function imageTaskPayload(projectId: string, ep: Episode, items: ImageIte
   };
 }
 
-/** Masters an episode's images must wait for: null when the story has no masters gate. */
-export async function approvedMastersFor(db: Db, project: Pick<ProjectRow, "storyId">): Promise<Set<string> | null> {
+/**
+ * Master keys an episode's images must still wait for (known to the story but not approved); null when the
+ * story has no masters gate. Keys the story has no master for never block.
+ */
+export async function unapprovedMastersFor(db: Db, project: Pick<ProjectRow, "storyId">): Promise<Set<string> | null> {
   if (!project.storyId) return null;
   const [story] = await db.select().from(stories).where(eq(stories.id, project.storyId));
   if (!story || !mastersGateOn(story.bible as StoryBible)) return null;
   const rows = await db
     .select({ key: storyMasters.masterKey })
     .from(storyMasters)
-    .where(and(eq(storyMasters.storyId, project.storyId), eq(storyMasters.status, "approved")));
+    .where(and(eq(storyMasters.storyId, project.storyId), ne(storyMasters.status, "approved")));
   return new Set(rows.map((r) => r.key));
 }
 
@@ -146,8 +149,8 @@ export async function advance(db: Db, projectId: string): Promise<void> {
 
     const ep = project.episode as Episode;
     const req = requirements(ep);
-    const approvedMasters = await approvedMastersFor(tx, project);
-    const waitsOn = (item: ImageItem) => (approvedMasters ? item.master_keys.filter((k) => !approvedMasters.has(k)) : []);
+    const unapproved = await unapprovedMastersFor(tx, project);
+    const waitsOn = (item: ImageItem) => (unapproved ? item.master_keys.filter((k) => unapproved.has(k)) : []);
     const waitingFor = new Set<string>();
     const all = await tx.select().from(tasks).where(eq(tasks.projectId, projectId));
     const ready = await readyAssetMap(tx, projectId);

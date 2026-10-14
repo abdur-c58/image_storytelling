@@ -3,7 +3,7 @@ import type { Db } from "@/lib/db";
 import type { Episode } from "@/lib/episode/schema";
 import { detectDocType, parseJsonText, validateText, type DocType, type ValidationResult } from "@/lib/episode/validate";
 import { createProject } from "./project";
-import { loadStoryContext, saveStory } from "./story";
+import { loadStoryContext, mergeBibleAdditions, saveStory } from "./story";
 
 /** Validate any pasted document, checking episodes against their stored story (state, masters). */
 export async function validateWithStore(db: Db, text: string, now?: Date): Promise<ValidationResult> {
@@ -55,6 +55,7 @@ export async function ingestDocument(db: Db, text: string, adjust?: (ep: Episode
     if (validation.episode) {
       if (adjust) adjust(validation.episode);
       out.storyId = validation.episode.story.story_id;
+      await mergeBibleAdditions(db, out.storyId, validation.episode_doc?.bible_additions, validation.episode.series.episode_number);
       out.projectId = await createProject(db, text, validation);
     }
   } catch (error) {

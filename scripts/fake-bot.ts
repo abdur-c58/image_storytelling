@@ -1,6 +1,6 @@
 /**
  * Stand-in for the Grok browser bot. Claims bot tasks over the real HTTP API, uploads placeholder
- * images for generate_images and pretends to publish for upload_youtube.
+ * images for generate_images / generate_location_master and pretends to publish for upload_youtube.
  *
  *   BOT_TOKEN=... APP_BASE_URL=http://localhost:3000 npx tsx scripts/fake-bot.ts [--once] [--interval 5]
  */
@@ -40,7 +40,8 @@ async function placeholder(label: string, prompt: string): Promise<Buffer> {
   for (const ch of label) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   const hue = hash % 360;
   const words = prompt.split(/\s+/).slice(-24).join(" ");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
+  // 2560x1440: the default source_image_min_width, so crops have real pixels to work with.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 1920 1080">
     <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="hsl(${hue},45%,35%)"/><stop offset="1" stop-color="hsl(${(hue + 60) % 360},45%,18%)"/>
     </linearGradient></defs>
@@ -57,6 +58,7 @@ interface Item {
   segment_id: string;
   asset_key: string;
   final_prompt: string;
+  output_filename?: string;
   already_uploaded?: boolean;
 }
 
@@ -72,7 +74,7 @@ async function doImages(task: { task_id: string; lease_id: string; payload: { it
     const form = new FormData();
     form.set("lease_id", task.lease_id);
     form.set("asset_key", item.asset_key);
-    form.set("file", new Blob([new Uint8Array(png)], { type: "image/png" }), `${item.segment_id}.png`);
+    form.set("file", new Blob([new Uint8Array(png)], { type: "image/png" }), item.output_filename ?? `${item.segment_id}.png`);
     const res = await call(`/api/bot/tasks/${task.task_id}/assets`, { method: "POST", body: form });
     if (!res.accepted) throw new Error(`Upload of ${item.asset_key} rejected: ${res.reason}`);
     done++;
@@ -113,9 +115,9 @@ async function main() {
       console.error((error as Error).message);
     }
     if (task) {
-      console.log(`claimed ${task.type} (${task.scope}) for "${task.project_title}"`);
+      console.log(`claimed ${task.type} (${task.scope}) for "${task.project_title ?? task.story_title}"`);
       try {
-        if (task.type === "generate_images") await doImages(task);
+        if (task.type === "generate_images" || task.type === "generate_location_master") await doImages(task);
         else if (task.type === "upload_youtube") await doPublish(task);
         else throw new Error(`Unknown task type ${task.type}`);
       } catch (error) {

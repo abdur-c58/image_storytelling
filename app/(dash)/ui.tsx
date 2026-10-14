@@ -2,6 +2,11 @@ const STATE_TONE: Record<string, string> = {
   DRAFT: "bg-muted",
   VALIDATED: "bg-muted",
   GENERATING: "bg-info",
+  WAITING_MASTERS: "bg-warn",
+  STORY_VALIDATED: "bg-muted",
+  LOCATION_MASTERS_REQUESTED: "bg-info",
+  MASTERS_REVIEW: "bg-warn",
+  MASTERS_APPROVED: "bg-ok",
   IMAGES_RECEIVED: "bg-info",
   THUMBNAIL: "bg-info",
   MIX: "bg-info",
@@ -15,6 +20,11 @@ const STATE_TONE: Record<string, string> = {
 const STATE_LABEL: Record<string, string> = {
   IMAGES_RECEIVED: "Images in",
   PUBLISH_REQUESTED: "Publishing",
+  WAITING_MASTERS: "Waiting for masters",
+  STORY_VALIDATED: "Validated",
+  LOCATION_MASTERS_REQUESTED: "Masters requested",
+  MASTERS_REVIEW: "Review masters",
+  MASTERS_APPROVED: "Masters approved",
 };
 
 export function StateBadge({ state }: { state: string }) {

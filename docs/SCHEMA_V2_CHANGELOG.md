@@ -83,7 +83,7 @@ Each segment gains `sentences: [{ index, text, start_sec, end_sec }]`, `crop_pla
 
 ## 6. `bible_additions` rules
 
-New items only: an id that already exists in the story is an error, even if the definition is identical. New states may be added to existing locations (`location_states: [{ location_id, state }]`), and the same goes for angles, props and outfit states. Additions are merged into the stored story when the episode project is created, and only the new items get masters.
+New items only: an id that already exists in the story with a different definition is an error. Repeating an addition unchanged is allowed, so an episode can be re-imported after its additions were merged. New states may be added to existing locations (`location_states: [{ location_id, state }]`), and the same goes for angles, props and outfit states. Additions are merged into the stored story when the episode project is created; only the new items get masters, and the episode's pictures wait for them like any other master.
 
 ## 7. Fish Audio tags (checked against the Drama 3 docs on 2026-10-14)
 

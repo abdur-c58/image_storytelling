@@ -1,160 +1,277 @@
-# Episode JSON contract (for the script writer)
+# Story and episode JSON contract (schema 2.0, for the script writer)
 
 Give this file to Claude (or any writer) together with:
 
-- the JSON Schema: `schema/episode.schema.json` (also served at `/api/schema`),
-- one of the examples in `fixtures/` (`full_example.json` shows every feature),
-- for episode 2 onwards, the **"Context for episode N"** block from the site's Series page (recap, cliffhanger, state carry-over, characters).
+- the JSON Schemas in `schema/` (`story_bible.schema.json`, `episode.schema.json`, `bundle.schema.json`; also served at `/api/schema?type=story_bible|episode|bundle`),
+- the examples in `fixtures/`: `story_bible_example.json`, `episode_minimal.json`, `episode_full.json` (every feature),
+- for episode 2 onwards, the **"Context for episode N"** block from the site's Story page (story id, the story state the next episode starts from, previous episodes).
 
-The site validates every field. Errors block the project; warnings are shown but do not block. The editor at `/new` shows each problem with its line and column.
+The site validates every field and checks **continuity** against the stored story. Errors block saving; warnings are shown but do not block. The editor at `/new` shows each problem with its line and column.
+
+## Three documents
+
+| `doc_type` | What it is | When |
+|---|---|---|
+| `story_bible` | Characters, places, world variables, art style, voice/crop defaults. | Once per story (re-paste to add things). |
+| `episode` | One video: segments with scenes, thumbnail, YouTube metadata. Refers to the story by `story_id`. | Every episode. |
+| `bundle` | `{ "schema_version": "2.0", "doc_type": "bundle", "story_bible": {...}, "episode": {...} }` | First episode of a new story, in one paste. |
+
+Every document starts with `"schema_version": "2.0"` and its `doc_type`. A 1.0 episode is rejected; the editor's **Convert v1** button turns it into a bundle.
 
 ## Output rules
 
-1. Output **one JSON object only**: no Markdown fences, no comments, no trailing commas (the validator rejects both).
-2. `"schema_version": "1.0"`.
-3. Ids (`series_id`, segment ids, character ids, sfx ids, trigger ids) use only letters, digits, `_` and `-`. Use the `seg_001`, `seg_002`, … pattern for segments and `seg_004_sfx_1` for cues; ids must be unique across the whole episode.
-4. Segment `order` values are 1, 2, 3, … and are the play order (array order does not matter).
-5. Never put `<` or `>` in the YouTube title or description.
-6. Unknown keys are kept but ignored, so extra notes do no harm; misspelt keys silently do nothing, so match the names below exactly.
+1. Output **one JSON object only**: no Markdown fences, no comments, no trailing commas.
+2. Ids (`story_id`, character, location, state, angle, prop, variable, segment and sfx ids) use only letters, digits, `_` and `-`. Use `seg_001`, `seg_002`, … for segments and `seg_004_sfx_1` for cues; ids are unique within their list.
+3. Segment `order` values are 1, 2, 3, … and are the play order.
+4. Never put `<` or `>` in the YouTube title or description, and never `[` or `<` in `narration`.
+5. Unknown keys are kept but ignored; misspelt keys silently do nothing, so match the names below exactly.
 
-## Top-level shape
+---
+
+## Story bible
 
 ```text
-schema_version, series, style_bible, voice?, audio?, segments[], thumbnail, youtube, chapters?, automation?, render?
+schema_version, doc_type, story_id, story_title, total_episodes_planned?, channel, style_bible, characters[],
+scene_bible { world_variables[], locations[] }, defaults? { voice, audio, render, crop_policy }, automation?
 ```
 
-Fields marked `?` have sensible defaults and can be left out.
+Once a story has episodes, a re-pasted bible may only **add** things (nothing removed), so old episodes stay valid.
 
-## series
+### channel
 
-| Field | Notes |
-|---|---|
-| `series_id` | Stable for the whole series, e.g. `zombie-outbreak`. Episodes are grouped by it. |
-| `series_title`, `episode_number`, `episode_title_short` | Required. |
-| `total_episodes_planned` | Optional. |
-| `recap_of_previous`, `cliffhanger`, `next_episode_teaser` | Text; feeds the next episode's context block. |
-| `state_carryover` | `{ day_counter_end, resources: {...}, characters_status: {...} }`. Free-form values; keep them consistent between episodes. |
+- `channel_name`: the YouTube channel; the default for every episode's `youtube.channel_name`.
+- `recurring_cameo`: `{ description, rule, min_segments_per_episode? }`, e.g. a small mascot hidden in the frame. Segments opt in with `scene.include_channel_cameo: true`; fewer than `min_segments_per_episode` gives a warning.
 
-## style_bible (drives every image)
+### style_bible (drives every image)
 
-Each image prompt is assembled as: `global_style_prompt` + one sentence per character present (`Name: visual_description`) + shot, mood and time of day + `Scene: <segment prompt>`. So:
-
-- `global_style_prompt`: the art style only (medium, line weight, palette, mood words). Same text every episode of a series.
+- `global_style_prompt`: the art style only (medium, line weight, palette, mood words). Same text for the whole story.
 - `negative_prompt`: things to avoid in every image (`text, watermark, photorealistic`).
-- `characters[]`: `{ id, name, visual_description, reference_image_ids? }`. Describe **fixed visual traits** (clothing, colours, hair, props) in one sentence. Don't repeat them in scene prompts; listing the id in `characters_present` adds them.
-- `reference_assets[]`: `{ id, description, asset_url_or_path }`. Public https URLs are handed to the image bot for character consistency.
+- `aspect_ratio` `16:9`, `target_resolution` `1920x1080`, `palette_notes` (free text).
+- `source_image_min_width` (default 2560): pictures narrower than this are upscaled and flagged, because crops zoom in. Under 1280 px is rejected.
 
-## voice and audio
+### characters[]
 
-- `voice.voice_id`: a Fish Audio voice id; empty uses the worker's default.
-- `voice.model`: empty uses the worker default. `[direction]` cues (from `delivery`) are only sent to models whose name starts with `drama` or `s2`.
-- `voice.speed` (0.5–2), `voice.pause_between_segments_ms` (default 250).
-- `voice.pronunciation_overrides`: `{ "Ra's": "Raz" }`; applied to the spoken text only (captions keep the original spelling).
-- `audio`: defaults are right for YouTube (`master_loudness_lufs` −14, `true_peak_db` −1.5, `voice_target_lufs` −16, `sfx_default_gain_db` −18). `audio.music` is accepted but **not implemented yet**.
+`{ id, name, role, visual_description, outfit_states[], first_appears_episode }`
 
-## segments[]
+- `role`: `protagonist`, `ally`, `antagonist`, `cameo` or `extra`.
+- `visual_description`: **fixed** traits only (body, face, hair). One sentence.
+- `outfit_states[]`: `{ id, description }`, e.g. `beanie`: "a mustard yellow beanie and a grey scarf". The first is the default. Scenes pick one with `outfit_state_id`.
+- `first_appears_episode`: using a character earlier is an error (unless marked `cameo`).
+
+### scene_bible.world_variables[]
+
+`{ id, type, initial, values?, prompt_template?, applies_to_location_tags?, monotonic?, max_step_per_segment? }`
+
+- `type`: `integer`, `number`, `string` or `enum` (with `values`).
+- `prompt_template`: e.g. `"Weather: {value}"`, added to the prompt of every scene that sets it.
+- `applies_to_location_tags`: e.g. `["outdoor"]`. A scene in a location with a matching tag **must** set this variable in `world_state`.
+- `monotonic` (`increasing` / `decreasing`) and `max_step_per_segment`: breaking them gives a warning (day 3 → day 2, or water jumping).
+
+### scene_bible.locations[]
+
+`{ id, name, tags[], anchor_description, fixed_landmarks[], camera_angles[], states[], key_props[] }`
+
+- `anchor_description`: what the place is, in one sentence. Goes into every picture of it.
+- `fixed_landmarks[]`: things that are always there and always in the same place ("a round grey water tank on steel legs"). The bot checks masters against these.
+- `camera_angles[]`: `{ id, name, prompt }`. Short ids (`a`, `b`, `c`) are fine.
+- `states[]`: `{ id, description, is_base?, derived_from? }`. Exactly one `is_base`. States are how the place changes over the story (`clear` → `barricaded`).
+- `key_props[]`: `{ id, description, default_position }`. Scenes list the ones in view in `props_in_frame`.
+
+**Masters.** For every location × state × camera angle, and every character × outfit, the bot makes one reference picture ("master"). You approve them on the Story page. Approved masters are attached to every episode picture of that place and those characters, which keeps the look consistent. A location with 3 states and 3 angles is 9 masters, so add states and angles deliberately.
+
+### defaults
+
+`voice`, `audio`, `render` and `crop_policy` blocks (see below); episodes override them field by field in `overrides`.
+
+### automation
+
+`approval_gates.location_masters` (default `true`): episode pictures wait until every master they use is approved. `false` skips masters entirely.
+
+---
+
+## Episode
+
+```text
+schema_version, doc_type, story_id, series, segments[], thumbnail, youtube, chapters?, overrides?, bible_additions?, automation?
+```
+
+### series
+
+`episode_number`, `episode_title_short` (required), `recap_of_previous`, `cliffhanger`, `next_episode_teaser`, `state_carryover` (free-form notes; the real state is computed from scenes).
+
+### segments[]
 
 | Field | Notes |
 |---|---|
 | `id`, `order`, `type` | `type` is `illustration`, `title_card`, `infographic` or `reuse_image`. |
-| `narration` | What is spoken and captioned. Required unless `silent: true`. Aim for 8–40 words; over 60 gives a warning. Write numbers the way they should be read aloud only if Fish reads them wrongly; otherwise use normal text ("5,000 gallons"). |
-| `tts_text` | Optional: spoken text if it must differ from the caption (e.g. phonetic spelling). |
+| `narration` | Clean text that is captioned and checked against what Whisper hears. **No tags.** Aim for 8–40 words; over 60 gives a warning. |
+| `tts_text` | The narration with Fish voice tags (see **Voice direction**). With the tags removed it must equal `narration`. Expected on segments of 3+ sentences. |
 | `caption_text` | Optional caption override. |
-| `delivery` | Optional short acting note (≤120 chars), e.g. `"whispered, tense"`. |
+| `delivery` | Optional acting note (≤120 chars), e.g. `"whispered, tense"`. |
+| `sentence_split_override` | Optional `string[]` when the automatic sentence split is wrong; must join back to the narration. |
 | `silent` | `true` for cards with no voice. |
-| `min_duration_sec` | Hold the picture at least this long. Silent segments default to 3 s, cards to 2.5 s. |
+| `min_duration_sec` | Hold the picture at least this long. |
 | `transition_out` | `cut` (default), `crossfade_150ms` or `fade_black`. |
-| `image` | See below. |
+| `scene` | Required on `illustration` (below). |
+| `image` | Below. |
 | `remotion` | Card definition for `title_card` / `infographic`. |
 | `sfx[]` | Sound effect cues. |
 
-Timing: a spoken segment lasts its voice length plus the pause. You don't write timestamps; the worker measures them.
+You never write timestamps; the worker measures them.
 
-### image (illustration, reuse_image, image-backed cards)
+### scene (where and when the picture happens)
 
 | Field | Notes |
 |---|---|
-| `prompt` | The scene only: who is where doing what, key objects, composition. One or two sentences. No style words (the style bible adds them), no text or lettering in the image. |
-| `characters_present` | Character ids in this picture. |
-| `shot_type` | `wide`, `medium`, `close-up`, `top-down`, `over-the-shoulder`. |
-| `mood`, `time_of_day` | Short words. |
+| `location_id`, `state_id`, `camera_angle_id` | Must exist in the story (or in this episode's `bible_additions`). The state must be the location's **current** state (see state changes). |
+| `world_state` | `{ "day": 2, "weather": "rain" }`. Required for variables that apply to this location; keep them consistent with earlier segments and episodes. |
+| `characters_present[]` | `{ character_id, outfit_state_id?, pose_or_action, position_in_frame, cameo? }`. `position_in_frame`: `left`, `center`, `right` or `background`. The character's look and outfit are added for you; don't repeat them. |
+| `props_in_frame[]` | Prop ids of this location that are visible. |
+| `state_changes[]` | `{ location_id, from_state_id, to_state_id, cause, persist }`. Something happens to a place: the door gets barricaded. `persist: true` carries the new state into later segments and episodes; `false` is a one-off. Later scenes of that location must use the new state. |
+| `include_channel_cameo` | Puts the channel's recurring cameo in this picture. |
+
+`reuse_image` segments inherit the scene of the segment they reuse.
+
+### image
+
+| Field | Notes |
+|---|---|
+| `prompt` | **Action and composition only**: who does what, key objects, framing. Location, state, angle, world, characters and style are added automatically. No text or lettering in the image. |
+| `focal_points[]` | `{ label, x, y }` (0–1, top-left origin): where the eye should go. Crops lean towards these. |
+| `crop_override` | `null`, `{ "enabled": false }` for a picture that must never be cropped, or a partial `crop_policy`. |
 | `negative_prompt_extra` | Added to the style bible's negative prompt. |
-| `motion` | `none`, `slow_zoom_in`, `slow_zoom_out`, `pan_left`, `pan_right`. Vary it; `none` for very short segments. |
-| `reuse_from_segment_id` | For `type: "reuse_image"`: show an earlier segment's picture again (must come earlier and have a picture). Use it to save generations when the narration continues over the same scene. |
+| `reuse_from_segment_id` | For `type: "reuse_image"`: show an earlier picture again. |
+
+The project page shows the assembled prompt piece by piece (prompt inspector).
+
+### Crops (instead of v1 `motion`)
+
+The renderer slowly crops into each picture and back out, driven by sentences:
+
+- A segment with **one sentence never crops**. With **two sentences** it crops on the second.
+- Longer segments: N full-frame sentences (usually 2, sometimes 1), then a crop held for a sentence, then back to full frame before the next crop.
+- Moves happen in the gap between sentences, so a move never lands mid-word.
+- Amounts: typically 4–10%, never more than 20%.
+
+So the way you break narration into sentences decides the camera rhythm. Defaults come from `crop_policy`:
+
+`enabled, max_crop (≤ 0.20), typical_max_crop, min_crop, prob_typical, crop_measure ("linear" | "area"), sentences_before_crop ({"2": 0.8, "1": 0.2}), hold_sentences, min_hold_sec, transition ("ease" | "cut"), transition_ms, easing, focal_bias, avoid_repeat_region, end_on_full_frame, seed_mode ("per_project" | "fixed"), seed`.
+
+### bible_additions (new things in this episode)
+
+`{ characters?, locations?, location_states?, camera_angles?, key_props?, outfit_states?, world_variables? }`. **Append-only**: new ids only (repeating an addition unchanged is fine; changing an existing item is an error). Examples: `location_states: [{ "location_id": "rooftop", "state": {...} }]`, `camera_angles: [{ "location_id": "rooftop", "angle": {...} }]`, `outfit_states: [{ "character_id": "protagonist", "outfit": {...} }]`. Accepted additions become part of the story, and their masters are made before this episode's pictures.
+
+### overrides
+
+`{ voice?, audio?, render?, crop_policy? }`: any subset of fields; everything else comes from the story's `defaults`.
+
+---
+
+## Voice direction
+
+`narration` is what the viewer reads and what Whisper checks. `tts_text` is the same words plus Fish Audio directions. The voice model is Fish **Drama 3** (`drama-3-preview`).
+
+**Square-bracket cues** (one at a time, never nested):
+
+| Cue | Use |
+|---|---|
+| `[short pause]`, `[pause]`, `[long pause]` | Beats. Default lengths 400 / 700 / 1200 ms. |
+| `[break]`, `[long-break]` | Same idea, 400 / 1200 ms. |
+| `[breath]`, `[sigh]`, `[laugh]`, `[shaky breath]` | Sounds. |
+| `[any short direction]` | Free-form, e.g. `[barely holding it together]`; applies from that point. Allowed, but not on the whitelist, so it gives a warning. |
+
+**Paired tags** for a few words: `<whisper>…</whisper>`, `<emphasis>`, `<soft>`, `<fast>`, `<slow>`, `<stress>`, `<forceful>`. They must be closed, in reverse order of opening.
+
+Rules:
+
+- Strip every tag from `tts_text` and you must get `narration` back exactly (punctuation and capitals may differ). Never add, drop or reorder words in `tts_text`.
+- At most **8 tags per 100 words** (`max_tags_per_100_words`). Fewer is better; let the punctuation carry most of the rhythm.
+- Put pauses where a narrator would breathe: after a reveal, before a number, between the setup and the punchline.
+- Sentences get a natural gap (`pause_between_sentences_ms`, 350); segments get `pause_between_segments_ms` (450).
+
+**If Fish reads a tag aloud** ("pause" heard in the voice), the QA flags the segment. On the second time it switches that segment to `split_and_silence`: the text is cut at pause tags and sentence ends, each piece is spoken separately, and exact silences are inserted. Writing clean tags avoids this.
+
+```json
+"narration": "The water was gone. All five thousand gallons, in two days.",
+"tts_text": "The water was gone. [long pause] <slow>All five thousand gallons</slow>, in two days."
+```
+
+---
+
+## Cards, sound, thumbnail, YouTube
 
 ### remotion (cards)
 
 `template`: `title_card`, `supplies_card`, `pictogram_chart`, `statement_card`, `lower_third`, `custom`.
 
-`props`:
-
 | Prop | Notes |
 |---|---|
-| `title`, `subtitle`, `body`, `footer` | Short text. Titles are set in a condensed display font and auto-shrink; keep them under ~24 characters. |
-| `background` | `dark`, `cream` or `image`. With `image`, either set `background_image_segment_id` to reuse an earlier picture, or give the segment its own `image.prompt`. |
+| `title`, `subtitle`, `body`, `footer` | Short text. Titles auto-shrink; keep them under ~24 characters. |
+| `background` | `dark`, `cream` or `image` (with `background_image_segment_id`, or the segment's own `image.prompt`). |
 | `accent` | `red` (default), `blue` or `none`. |
-| `items[]` | For `supplies_card` and `pictogram_chart` (at least one item): `{ label, value, icon, icon_count, icon_total }`. `icon_count ≤ icon_total`. Items at 25% or less are drawn red (running low). |
+| `items[]` | For `supplies_card` and `pictogram_chart`: `{ label, value, icon, icon_count, icon_total }`, `icon_count ≤ icon_total`. Items at 25% or less are drawn red. |
 
-Icons available: `water_jug, can, gas_canister, zombie_head, radio, pigeon, kite, person, medkit, battery, flashlight, fire, rope, key, door, knife, bread, bottle, tent, sun, moon, skull, heart, house`. Any other name renders a lettered circle (warning).
+Icons: `water_jug, can, gas_canister, zombie_head, radio, pigeon, kite, person, medkit, battery, flashlight, fire, rope, key, door, knife, bread, bottle, tent, sun, moon, skull, heart, house`. Any other name renders a lettered circle (warning).
 
 ### sfx[] (sound effect cues)
 
 | Field | Notes |
 |---|---|
 | `id` | Unique, e.g. `seg_004_sfx_1`. |
-| `search_query` | 2–4 plain words describing the **sound**, not the scene: `door slam`, `wind howling`, `can set down concrete`. |
+| `search_query` | 2–4 plain words describing the **sound**: `door slam`, `wind howling`. |
 | `alt_queries` | Fallback searches, broader each time. |
 | `must_include_tags`, `exclude_tags` | e.g. exclude `music`, `voice`. |
-| `placement` | `segment_start`, `segment_end`, `at_phrase` (needs `at_phrase`, a few consecutive words copied exactly from the narration) or `whole_segment` (ambience bed). |
-| `offset_sec` | Shift from the anchor. |
-| `duration_sec` | Cut the clip to this length. |
-| `loop` | `true` for beds that must fill the segment (rain, wind, crowd). |
-| `continues_into_next` | Bed carries on through the next segment. |
-| `gain_db` | Level relative to the voice (default −18). Beds −20 to −26, impacts −10 to −16. Beds are ducked under the voice automatically. |
+| `placement` | `segment_start`, `segment_end`, `at_phrase` (with `at_phrase` copied word-for-word from the narration) or `whole_segment`. |
+| `offset_sec`, `duration_sec`, `loop`, `continues_into_next` | Timing. `loop: true` for beds. |
+| `gain_db` | Relative to the voice (default −18). Beds −20 to −26, impacts −10 to −16. |
 | `fade_in_ms`, `fade_out_ms` | Defaults 100 / 300. |
 
-Use SFX sparingly: one bed per scene change plus impacts on story beats. Only commercially licensed clips are used (CC0, public domain, CC BY with credit, or your licensed local library), so very specific queries may find nothing; the cue is then left silent with a warning.
+Only commercially licensed clips are used (the channel is monetised): CC0, public domain, CC BY with credit, or the local licensed library. Non-commercial and Sampling+ licences are excluded. Unfindable cues are left silent with a warning.
 
-## thumbnail
-
-| Field | Notes |
-|---|---|
-| `image_prompt` | Scene for the thumbnail base image: one strong subject, high contrast, empty space where text goes. **No text in the image**; text is added by `text_layers`. |
-| `characters_present` | As for segments. |
-| `text_layers[]` | Up to 4: `{ text, style, position, max_font_size_px }`. Styles `impact_white_black_outline`, `impact_yellow_black_outline`, `red_badge`, `plain_white`. Avoid `bottom_right` (YouTube's duration stamp). 1–3 words per layer. |
-| `alt_variants` | 0–2 extra base images for A/B choice. |
-
-## youtube
+### thumbnail
 
 | Field | Notes |
 |---|---|
-| `channel_name` | Must match the channel the bot is signed into; the bot refuses otherwise. |
+| `image_prompt` | One strong subject, high contrast, empty space for text. **No text in the image.** |
+| `scene` | Optional `{ location_id, state_id, camera_angle_id, world_state? }`: adds the location and its masters as references. |
+| `characters_present` | Character ids. |
+| `text_layers[]` | Up to 4: `{ text, style, position, max_font_size_px }`. Styles `impact_white_black_outline`, `impact_yellow_black_outline`, `red_badge`, `plain_white`. Avoid `bottom_right`. |
+| `alt_variants` | 0–2 extra base images. |
+
+### youtube
+
+| Field | Notes |
+|---|---|
+| `channel_name` | Optional; defaults to the story's channel. The bot refuses a different channel. |
 | `title` | ≤ 100 characters. |
-| `description` | ≤ 5000 bytes after expansion. Put `{{chapters}}` and `{{sfx_credits}}` on their own lines; they are replaced with chapter timestamps and the required CC BY credits. If a placeholder is missing, that block is appended at the end instead. |
+| `description` | ≤ 5000 bytes after expansion. Put `{{chapters}}` and `{{sfx_credits}}` on their own lines. |
 | `tags` | ≤ 500 characters total. |
-| `category` | A YouTube category name (default `Entertainment`). |
-| `visibility` | `private`, `unlisted`, `public` or `scheduled` (needs a future `scheduled_publish_at` with timezone offset). |
-| `playlist`, `pinned_comment`, `end_screen_note` | Optional; the bot sets them. |
+| `category`, `language` | Default `Entertainment`, `en`. |
+| `visibility` | `private`, `unlisted`, `public` or `scheduled` (with a future `scheduled_publish_at` including a timezone offset). |
+| `playlist`, `pinned_comment`, `end_screen_note`, `comments_enabled` | Optional. |
 | `made_for_kids` | Default `false`. |
 | `contains_altered_or_synthetic_media` | Default `true` (AI images and voice). Leave it `true`. |
-| `chapters_from_segments` | Default `true`. |
 
-## chapters
+### chapters
 
-`[{ "segment_id": "seg_005", "title": "Day 2" }]`. YouTube needs at least 3 chapters, the first at 0:00 and each at least 10 s long. If your first chapter starts within 10 s it is moved to 0:00; later than that, an "Intro" chapter is added. If the rules still aren't met, chapters are left out with a warning.
+`[{ "segment_id": "seg_005", "title": "Day 2" }]`. At least 3, the first at 0:00, each at least 10 s. Problems are fixed where possible or chapters are left out with a warning.
 
-## automation and render
+### automation and render
 
-- `automation.auto_start_on_submit` (default `true`): start as soon as the JSON is accepted.
-- `automation.approval_gates.before_render` / `before_publish`: pause for a click in the dashboard.
-- `automation.bot_triggers[]`: optional overrides for the image bot (batch size, output naming, retries, timeout). Leave out to use the defaults.
-- `render`: `fps` (24/25/30/60), `burn_in_captions` + `caption_style` (`bottom_bar`, `bold_center`), `intro_sec`, `outro_sec`, `crf`, `audio_bitrate_kbps`. Defaults are fine.
+- `automation.auto_start_on_submit` (default `true`), `approval_gates.before_render` / `before_publish`.
+- `render` (via `overrides.render`): `fps`, `burn_in_captions` + `caption_style` (`bottom_bar`, `bold_center`), `intro_sec`, `outro_sec`, `crf`, `audio_bitrate_kbps`.
+
+---
 
 ## Writing checklist
 
-- [ ] Every `illustration` has `image.prompt`; every card has a `remotion` block.
-- [ ] Every character id used in `characters_present` exists in `style_bible.characters`.
-- [ ] `at_phrase` text appears word-for-word in that segment's narration.
-- [ ] No text, letters or signs requested inside any image prompt.
-- [ ] Episode 2+: `recap_of_previous` and `state_carryover` agree with the previous episode's context block.
-- [ ] Description contains `{{chapters}}` and `{{sfx_credits}}`.
+- [ ] `schema_version: "2.0"` and the right `doc_type`; the episode's `story_id` matches the story.
+- [ ] Every `illustration` has a `scene` and an `image.prompt` (action only); every card has a `remotion` block.
+- [ ] Scene states follow the story: a location's state only changes through a `state_changes` entry.
+- [ ] `world_state` is set for every variable that applies to the location, and it never goes backwards.
+- [ ] No character appears before their `first_appears_episode`; outfits exist.
+- [ ] Anything new is in `bible_additions`.
+- [ ] `tts_text` minus its tags equals `narration`; at most 8 tags per 100 words.
+- [ ] Sentence breaks are where the camera should move; one-sentence segments stay full frame.
+- [ ] `at_phrase` text appears word-for-word in the narration; no text requested inside any image.
+- [ ] The description contains `{{chapters}}` and `{{sfx_credits}}`.

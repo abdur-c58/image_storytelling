@@ -5,7 +5,8 @@ import type { Db } from "@/lib/db";
 import { assets, projects, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
 import { initialStoryState, type StoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
 import { buildMasterItems, type MasterItem } from "@/lib/episode/prompt";
-import type { StoryBible } from "@/lib/episode/schema";
+import { applyBibleAdditions } from "@/lib/episode/resolve";
+import type { BibleAdditions, StoryBible } from "@/lib/episode/schema";
 import type { StoryContext } from "@/lib/episode/validate";
 import { createTask, logEvent, type Owner } from "@/lib/queue";
 import { getStorage, storyObjectPrefix } from "@/lib/storage";
@@ -153,6 +154,24 @@ export async function saveStory(
   }
   await advanceStory(db, bible.story_id);
   return { storyId: bible.story_id, created: !existing };
+}
+
+/**
+ * An accepted episode's bible_additions become part of the story (they are append-only), so later episodes
+ * can use them and their masters are made like any other.
+ */
+export async function mergeBibleAdditions(db: Db, storyId: string, additions: BibleAdditions | undefined, episodeNumber: number): Promise<boolean> {
+  if (!additions) return false;
+  const story = await getStory(db, storyId);
+  if (!story) throw new Error("Story not found.");
+  const before = story.bible as StoryBible;
+  const merged = applyBibleAdditions(before, additions);
+  if (JSON.stringify(merged) === JSON.stringify(before)) return false;
+  await db.update(stories).set({ bible: merged, updatedAt: new Date() }).where(eq(stories.id, storyId));
+  await syncMasters(db, merged, false);
+  await logEvent(db, { storyId }, null, "info", `Bible additions from episode ${episodeNumber} merged into the story.`);
+  await advanceStory(db, storyId);
+  return true;
 }
 
 function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[]) {

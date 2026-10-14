@@ -1,0 +1,3001 @@
+{
+  "$id": "https://slideshow-storytelling.local/schema/bundle.schema.json",
+  "title": "Story bible + episode bundle (schema 2.0)",
+  "description": "A story bible and one episode in a single document. Validated exactly like the two separately.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0"
+    },
+    "doc_type": {
+      "type": "string",
+      "const": "bundle"
+    },
+    "story_bible": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "doc_type": {
+          "type": "string",
+          "const": "story_bible"
+        },
+        "story_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "story_title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "total_episodes_planned": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "channel": {
+          "type": "object",
+          "properties": {
+            "channel_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recurring_cameo": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "rule": {
+                      "default": "",
+                      "type": "string"
+                    },
+                    "min_segments_per_episode": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "description"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "channel_name"
+          ],
+          "additionalProperties": {}
+        },
+        "style_bible": {
+          "type": "object",
+          "properties": {
+            "global_style_prompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "negative_prompt": {
+              "default": "",
+              "type": "string"
+            },
+            "aspect_ratio": {
+              "default": "16:9",
+              "type": "string",
+              "const": "16:9"
+            },
+            "target_resolution": {
+              "default": "1920x1080",
+              "type": "string",
+              "const": "1920x1080"
+            },
+            "source_image_min_width": {
+              "default": 2560,
+              "type": "integer",
+              "minimum": 1280,
+              "maximum": 8192
+            },
+            "palette_notes": {
+              "default": "",
+              "type": "string"
+            },
+            "reference_assets": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "description": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "asset_url_or_path": {
+                    "default": "",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": {}
+              }
+            }
+          },
+          "required": [
+            "global_style_prompt"
+          ],
+          "additionalProperties": {}
+        },
+        "characters": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "default": "extra",
+                "type": "string",
+                "enum": [
+                  "protagonist",
+                  "ally",
+                  "antagonist",
+                  "cameo",
+                  "extra"
+                ]
+              },
+              "visual_description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "outfit_states": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "description": {
+                      "default": "",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "reference_image_ids": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                }
+              },
+              "first_appears_episode": {
+                "default": 1,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "visual_description"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "scene_bible": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "world_variables": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "integer",
+                      "number",
+                      "string",
+                      "enum"
+                    ]
+                  },
+                  "initial": {
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  },
+                  "values": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "prompt_template": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "applies_to_location_tags": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "monotonic": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "increasing",
+                          "decreasing"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "max_step_per_segment": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "initial"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "locations": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tags": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "anchor_description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "fixed_landmarks": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "camera_angles": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "name": {
+                          "default": "",
+                          "type": "string"
+                        },
+                        "prompt": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "prompt"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "states": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "default": "",
+                          "type": "string"
+                        },
+                        "is_base": {
+                          "default": false,
+                          "type": "boolean"
+                        },
+                        "derived_from": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "key_props": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "default_position": {
+                          "default": "",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "description"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "anchor_description",
+                  "camera_angles",
+                  "states"
+                ],
+                "additionalProperties": {}
+              }
+            }
+          },
+          "additionalProperties": {}
+        },
+        "defaults": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "voice": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "default": "fish_audio",
+                  "type": "string",
+                  "const": "fish_audio"
+                },
+                "voice_id": {
+                  "default": "",
+                  "type": "string"
+                },
+                "model": {
+                  "default": "",
+                  "type": "string"
+                },
+                "speed": {
+                  "default": 1,
+                  "type": "number",
+                  "minimum": 0.5,
+                  "maximum": 2
+                },
+                "style_notes": {
+                  "default": "",
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "pronunciation_overrides": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "tag_whitelist": {
+                  "default": [
+                    "short pause",
+                    "pause",
+                    "long pause",
+                    "break",
+                    "long-break",
+                    "breath",
+                    "sigh",
+                    "laugh",
+                    "shaky breath"
+                  ],
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "paired_tags": {
+                  "default": [
+                    "whisper",
+                    "emphasis",
+                    "soft",
+                    "fast",
+                    "slow",
+                    "stress",
+                    "forceful"
+                  ],
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "unknown_tag_level": {
+                  "default": "warning",
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "error"
+                  ]
+                },
+                "max_tags_per_100_words": {
+                  "default": 8,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "pause_between_sentences_ms": {
+                  "default": 350,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "pause_between_segments_ms": {
+                  "default": 450,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "tag_fallback_mode": {
+                  "default": "split_and_silence",
+                  "type": "string",
+                  "enum": [
+                    "split_and_silence",
+                    "none"
+                  ]
+                },
+                "pause_durations_ms": {
+                  "default": {
+                    "short pause": 400,
+                    "pause": 700,
+                    "long pause": 1200,
+                    "break": 400,
+                    "long-break": 1200
+                  },
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  }
+                }
+              },
+              "additionalProperties": {}
+            },
+            "audio": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "master_loudness_lufs": {
+                  "default": -14,
+                  "type": "number",
+                  "minimum": -30,
+                  "maximum": -8
+                },
+                "true_peak_db": {
+                  "default": -1.5,
+                  "type": "number",
+                  "minimum": -9,
+                  "maximum": 0
+                },
+                "voice_target_lufs": {
+                  "default": -16,
+                  "type": "number",
+                  "minimum": -30,
+                  "maximum": -10
+                },
+                "sfx_default_gain_db": {
+                  "default": -18,
+                  "type": "number",
+                  "minimum": -60,
+                  "maximum": 6
+                },
+                "music": {
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "query": {
+                      "default": "",
+                      "type": "string"
+                    },
+                    "gain_db": {
+                      "default": -26,
+                      "type": "number",
+                      "minimum": -60,
+                      "maximum": 0
+                    },
+                    "duck_under_voice": {
+                      "default": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "additionalProperties": {}
+            },
+            "render": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "resolution": {
+                  "default": "1920x1080",
+                  "type": "string",
+                  "const": "1920x1080"
+                },
+                "fps": {
+                  "default": 30,
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 24
+                    },
+                    {
+                      "type": "number",
+                      "const": 25
+                    },
+                    {
+                      "type": "number",
+                      "const": 30
+                    },
+                    {
+                      "type": "number",
+                      "const": 60
+                    }
+                  ]
+                },
+                "burn_in_captions": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "caption_style": {
+                  "default": "none",
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "bottom_bar",
+                    "bold_center"
+                  ]
+                },
+                "intro_sec": {
+                  "default": 0,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 30
+                },
+                "outro_sec": {
+                  "default": 0,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 60
+                },
+                "codec": {
+                  "default": "h264",
+                  "type": "string",
+                  "const": "h264"
+                },
+                "crf": {
+                  "default": 18,
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 35
+                },
+                "audio_bitrate_kbps": {
+                  "default": 192,
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 128
+                    },
+                    {
+                      "type": "number",
+                      "const": 192
+                    },
+                    {
+                      "type": "number",
+                      "const": 256
+                    },
+                    {
+                      "type": "number",
+                      "const": 320
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": {}
+            },
+            "crop_policy": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "max_crop": {
+                  "default": 0.2,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.2
+                },
+                "typical_max_crop": {
+                  "default": 0.1,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.2
+                },
+                "min_crop": {
+                  "default": 0.04,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.2
+                },
+                "prob_typical": {
+                  "default": 0.85,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "crop_measure": {
+                  "default": "linear",
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "area"
+                  ]
+                },
+                "sentences_before_crop": {
+                  "default": {
+                    "1": 0.2,
+                    "2": 0.8
+                  },
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^[1-9]\\d*$"
+                  },
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "hold_sentences": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "min_hold_sec": {
+                  "default": 1.5,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 30
+                },
+                "transition": {
+                  "default": "ease",
+                  "type": "string",
+                  "enum": [
+                    "ease",
+                    "cut"
+                  ]
+                },
+                "transition_ms": {
+                  "default": 450,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3000
+                },
+                "easing": {
+                  "default": "easeInOutCubic",
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "easeInOutCubic",
+                    "easeInOutSine",
+                    "easeOutCubic"
+                  ]
+                },
+                "focal_bias": {
+                  "default": 0.6,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "avoid_repeat_region": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "end_on_full_frame": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "seed_mode": {
+                  "default": "per_project",
+                  "type": "string",
+                  "enum": [
+                    "per_project",
+                    "fixed"
+                  ]
+                },
+                "seed": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": {}
+            }
+          },
+          "additionalProperties": {}
+        },
+        "automation": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "approval_gates": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "location_masters": {
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": {}
+            },
+            "bot_triggers": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "trigger_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "bot_task_type": {
+                    "type": "string",
+                    "enum": [
+                      "generate_images",
+                      "upload_youtube",
+                      "generate_location_master"
+                    ]
+                  },
+                  "fire_when": {
+                    "default": "VALIDATED",
+                    "type": "string",
+                    "enum": [
+                      "VALIDATED",
+                      "IMAGES_RECEIVED",
+                      "RENDER_COMPLETE",
+                      "STORY_VALIDATED"
+                    ]
+                  },
+                  "depends_on": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    }
+                  },
+                  "image_provider": {
+                    "default": "google_flow",
+                    "type": "string"
+                  },
+                  "batch_size": {
+                    "default": 8,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "output_naming": {
+                    "default": "{segment_id}.png",
+                    "type": "string"
+                  },
+                  "retry": {
+                    "default": {},
+                    "type": "object",
+                    "properties": {
+                      "max_attempts": {
+                        "default": 3,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10
+                      },
+                      "backoff_sec": {
+                        "default": 60,
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 86400
+                      }
+                    },
+                    "additionalProperties": {}
+                  },
+                  "timeout_minutes": {
+                    "default": 180,
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 1440
+                  }
+                },
+                "required": [
+                  "trigger_id",
+                  "bot_task_type"
+                ],
+                "additionalProperties": {}
+              }
+            }
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "schema_version",
+        "doc_type",
+        "story_id",
+        "story_title",
+        "channel",
+        "style_bible"
+      ],
+      "additionalProperties": {}
+    },
+    "episode": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "doc_type": {
+          "type": "string",
+          "const": "episode"
+        },
+        "story_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "series": {
+          "type": "object",
+          "properties": {
+            "episode_number": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "episode_title_short": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recap_of_previous": {
+              "default": "",
+              "type": "string"
+            },
+            "cliffhanger": {
+              "default": "",
+              "type": "string"
+            },
+            "next_episode_teaser": {
+              "default": "",
+              "type": "string"
+            },
+            "state_carryover": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "required": [
+            "episode_number",
+            "episode_title_short"
+          ],
+          "additionalProperties": {}
+        },
+        "segments": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "illustration",
+                  "title_card",
+                  "infographic",
+                  "reuse_image"
+                ]
+              },
+              "narration": {
+                "default": "",
+                "type": "string"
+              },
+              "tts_text": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "caption_text": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "delivery": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sentence_split_override": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "min_duration_sec": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 60
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "silent": {
+                "default": false,
+                "type": "boolean"
+              },
+              "scene": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "location_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "state_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "camera_angle_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "world_state": {
+                        "default": {},
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": [
+                            "number",
+                            "string"
+                          ]
+                        }
+                      },
+                      "characters_present": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "character_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            "outfit_state_id": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pose_or_action": {
+                              "default": "",
+                              "type": "string"
+                            },
+                            "position_in_frame": {
+                              "default": "center",
+                              "type": "string",
+                              "enum": [
+                                "left",
+                                "center",
+                                "right",
+                                "background"
+                              ]
+                            },
+                            "cameo": {
+                              "default": false,
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "character_id"
+                          ],
+                          "additionalProperties": {}
+                        }
+                      },
+                      "props_in_frame": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        }
+                      },
+                      "state_changes": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "location_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            "from_state_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            "to_state_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            "cause": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "persist": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "location_id",
+                            "from_state_id",
+                            "to_state_id",
+                            "cause",
+                            "persist"
+                          ],
+                          "additionalProperties": {}
+                        }
+                      },
+                      "include_channel_cameo": {
+                        "default": false,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "location_id",
+                      "state_id",
+                      "camera_angle_id"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "prompt": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "focal_points": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "default": "",
+                              "type": "string"
+                            },
+                            "x": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "y": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "additionalProperties": {}
+                        }
+                      },
+                      "crop_override": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "enabled": {
+                                "type": "boolean"
+                              },
+                              "max_crop": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 0.2
+                              },
+                              "typical_max_crop": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 0.2
+                              },
+                              "min_crop": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 0.2
+                              },
+                              "prob_typical": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "crop_measure": {
+                                "type": "string",
+                                "enum": [
+                                  "linear",
+                                  "area"
+                                ]
+                              },
+                              "sentences_before_crop": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "pattern": "^[1-9]\\d*$"
+                                },
+                                "additionalProperties": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                }
+                              },
+                              "hold_sentences": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10
+                              },
+                              "min_hold_sec": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 30
+                              },
+                              "transition": {
+                                "type": "string",
+                                "enum": [
+                                  "ease",
+                                  "cut"
+                                ]
+                              },
+                              "transition_ms": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 3000
+                              },
+                              "easing": {
+                                "type": "string",
+                                "enum": [
+                                  "linear",
+                                  "easeInOutCubic",
+                                  "easeInOutSine",
+                                  "easeOutCubic"
+                                ]
+                              },
+                              "focal_bias": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "avoid_repeat_region": {
+                                "type": "boolean"
+                              },
+                              "end_on_full_frame": {
+                                "type": "boolean"
+                              },
+                              "seed_mode": {
+                                "type": "string",
+                                "enum": [
+                                  "per_project",
+                                  "fixed"
+                                ]
+                              },
+                              "seed": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "additionalProperties": {}
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "negative_prompt_extra": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "reuse_from_segment_id": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": {}
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "remotion": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "template": {
+                        "type": "string",
+                        "enum": [
+                          "title_card",
+                          "supplies_card",
+                          "pictogram_chart",
+                          "statement_card",
+                          "lower_third",
+                          "custom"
+                        ]
+                      },
+                      "props": {
+                        "default": {},
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "default": null,
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "subtitle": {
+                            "default": null,
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "body": {
+                            "default": null,
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "background": {
+                            "default": "dark",
+                            "type": "string",
+                            "enum": [
+                              "dark",
+                              "cream",
+                              "image"
+                            ]
+                          },
+                          "background_image_segment_id": {
+                            "default": null,
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "items": {
+                            "default": [],
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "default": "",
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "icon": {
+                                  "default": "",
+                                  "type": "string"
+                                },
+                                "icon_count": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "icon_total": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": {}
+                            }
+                          },
+                          "footer": {
+                            "default": null,
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "accent": {
+                            "default": "red",
+                            "type": "string",
+                            "enum": [
+                              "red",
+                              "blue",
+                              "none"
+                            ]
+                          }
+                        },
+                        "additionalProperties": {}
+                      }
+                    },
+                    "required": [
+                      "template"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sfx": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "search_query": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "alt_queries": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "must_include_tags": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exclude_tags": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "placement": {
+                      "default": "segment_start",
+                      "type": "string",
+                      "enum": [
+                        "segment_start",
+                        "segment_end",
+                        "at_phrase",
+                        "whole_segment"
+                      ]
+                    },
+                    "at_phrase": {
+                      "default": null,
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "offset_sec": {
+                      "default": 0,
+                      "type": "number",
+                      "minimum": -30,
+                      "maximum": 120
+                    },
+                    "duration_sec": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 600
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "loop": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "gain_db": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": -60,
+                          "maximum": 12
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "fade_in_ms": {
+                      "default": 100,
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 10000
+                    },
+                    "fade_out_ms": {
+                      "default": 300,
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 10000
+                    },
+                    "continues_into_next": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "search_query"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "transition_out": {
+                "default": "cut",
+                "type": "string",
+                "enum": [
+                  "cut",
+                  "crossfade_150ms",
+                  "fade_black"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "order",
+              "type"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "thumbnail": {
+          "type": "object",
+          "properties": {
+            "image_prompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scene": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "location_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "state_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "camera_angle_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    "world_state": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "location_id",
+                    "state_id",
+                    "camera_angle_id"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "characters_present": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              }
+            },
+            "text_layers": {
+              "default": [],
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "style": {
+                    "default": "impact_white_black_outline",
+                    "type": "string",
+                    "enum": [
+                      "impact_white_black_outline",
+                      "impact_yellow_black_outline",
+                      "red_badge",
+                      "plain_white"
+                    ]
+                  },
+                  "position": {
+                    "default": "top_center",
+                    "type": "string",
+                    "enum": [
+                      "top_left",
+                      "top_center",
+                      "top_right",
+                      "left_middle",
+                      "center",
+                      "right_middle",
+                      "bottom_left",
+                      "bottom_center",
+                      "bottom_right"
+                    ]
+                  },
+                  "max_font_size_px": {
+                    "default": 200,
+                    "type": "integer",
+                    "minimum": 24,
+                    "maximum": 400
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "safe_zone_note": {
+              "default": "",
+              "type": "string"
+            },
+            "alt_variants": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            }
+          },
+          "required": [
+            "image_prompt"
+          ],
+          "additionalProperties": {}
+        },
+        "youtube": {
+          "type": "object",
+          "properties": {
+            "channel_name": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "default": "",
+              "type": "string"
+            },
+            "tags": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "category": {
+              "default": "Entertainment",
+              "type": "string",
+              "enum": [
+                "Film & Animation",
+                "Autos & Vehicles",
+                "Music",
+                "Pets & Animals",
+                "Sports",
+                "Travel & Events",
+                "Gaming",
+                "People & Blogs",
+                "Comedy",
+                "Entertainment",
+                "News & Politics",
+                "Howto & Style",
+                "Education",
+                "Science & Technology",
+                "Nonprofits & Activism"
+              ]
+            },
+            "language": {
+              "default": "en",
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 10
+            },
+            "visibility": {
+              "default": "private",
+              "type": "string",
+              "enum": [
+                "private",
+                "unlisted",
+                "public",
+                "scheduled"
+              ]
+            },
+            "scheduled_publish_at": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "playlist": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "made_for_kids": {
+              "default": false,
+              "type": "boolean"
+            },
+            "contains_altered_or_synthetic_media": {
+              "default": true,
+              "type": "boolean"
+            },
+            "comments_enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "pinned_comment": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 10000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "end_screen_note": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "chapters_from_segments": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "additionalProperties": {}
+        },
+        "chapters": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "segment_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "required": [
+              "segment_id",
+              "title"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "automation": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "auto_start_on_submit": {
+              "default": true,
+              "type": "boolean"
+            },
+            "approval_gates": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "before_render": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "before_publish": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": {}
+            },
+            "bot_triggers": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "trigger_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "bot_task_type": {
+                    "type": "string",
+                    "enum": [
+                      "generate_images",
+                      "upload_youtube",
+                      "generate_location_master"
+                    ]
+                  },
+                  "fire_when": {
+                    "default": "VALIDATED",
+                    "type": "string",
+                    "enum": [
+                      "VALIDATED",
+                      "IMAGES_RECEIVED",
+                      "RENDER_COMPLETE",
+                      "STORY_VALIDATED"
+                    ]
+                  },
+                  "depends_on": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    }
+                  },
+                  "image_provider": {
+                    "default": "google_flow",
+                    "type": "string"
+                  },
+                  "batch_size": {
+                    "default": 8,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "output_naming": {
+                    "default": "{segment_id}.png",
+                    "type": "string"
+                  },
+                  "retry": {
+                    "default": {},
+                    "type": "object",
+                    "properties": {
+                      "max_attempts": {
+                        "default": 3,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10
+                      },
+                      "backoff_sec": {
+                        "default": 60,
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 86400
+                      }
+                    },
+                    "additionalProperties": {}
+                  },
+                  "timeout_minutes": {
+                    "default": 180,
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 1440
+                  }
+                },
+                "required": [
+                  "trigger_id",
+                  "bot_task_type"
+                ],
+                "additionalProperties": {}
+              }
+            }
+          },
+          "additionalProperties": {}
+        },
+        "overrides": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "voice": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "fish_audio"
+                },
+                "voice_id": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "speed": {
+                  "type": "number",
+                  "minimum": 0.5,
+                  "maximum": 2
+                },
+                "style_notes": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "pronunciation_overrides": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "tag_whitelist": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "paired_tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "unknown_tag_level": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "error"
+                  ]
+                },
+                "max_tags_per_100_words": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "pause_between_sentences_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "pause_between_segments_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "tag_fallback_mode": {
+                  "type": "string",
+                  "enum": [
+                    "split_and_silence",
+                    "none"
+                  ]
+                },
+                "pause_durations_ms": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  }
+                }
+              },
+              "additionalProperties": {}
+            },
+            "audio": {
+              "type": "object",
+              "properties": {
+                "master_loudness_lufs": {
+                  "type": "number",
+                  "minimum": -30,
+                  "maximum": -8
+                },
+                "true_peak_db": {
+                  "type": "number",
+                  "minimum": -9,
+                  "maximum": 0
+                },
+                "voice_target_lufs": {
+                  "type": "number",
+                  "minimum": -30,
+                  "maximum": -10
+                },
+                "sfx_default_gain_db": {
+                  "type": "number",
+                  "minimum": -60,
+                  "maximum": 6
+                },
+                "music": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "query": {
+                      "type": "string"
+                    },
+                    "gain_db": {
+                      "type": "number",
+                      "minimum": -60,
+                      "maximum": 0
+                    },
+                    "duck_under_voice": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "additionalProperties": {}
+            },
+            "render": {
+              "type": "object",
+              "properties": {
+                "resolution": {
+                  "type": "string",
+                  "const": "1920x1080"
+                },
+                "fps": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 24
+                    },
+                    {
+                      "type": "number",
+                      "const": 25
+                    },
+                    {
+                      "type": "number",
+                      "const": 30
+                    },
+                    {
+                      "type": "number",
+                      "const": 60
+                    }
+                  ]
+                },
+                "burn_in_captions": {
+                  "type": "boolean"
+                },
+                "caption_style": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "bottom_bar",
+                    "bold_center"
+                  ]
+                },
+                "intro_sec": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 30
+                },
+                "outro_sec": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 60
+                },
+                "codec": {
+                  "type": "string",
+                  "const": "h264"
+                },
+                "crf": {
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 35
+                },
+                "audio_bitrate_kbps": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 128
+                    },
+                    {
+                      "type": "number",
+                      "const": 192
+                    },
+                    {
+                      "type": "number",
+                      "const": 256
+                    },
+                    {
+                      "type": "number",
+                      "const": 320
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": {}
+            },
+            "crop_policy": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "max_crop": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.2
+                },
+                "typical_max_crop": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.2
+                },
+                "min_crop": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.2
+                },
+                "prob_typical": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "crop_measure": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "area"
+                  ]
+                },
+                "sentences_before_crop": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^[1-9]\\d*$"
+                  },
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "hold_sentences": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "min_hold_sec": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 30
+                },
+                "transition": {
+                  "type": "string",
+                  "enum": [
+                    "ease",
+                    "cut"
+                  ]
+                },
+                "transition_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3000
+                },
+                "easing": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "easeInOutCubic",
+                    "easeInOutSine",
+                    "easeOutCubic"
+                  ]
+                },
+                "focal_bias": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "avoid_repeat_region": {
+                  "type": "boolean"
+                },
+                "end_on_full_frame": {
+                  "type": "boolean"
+                },
+                "seed_mode": {
+                  "type": "string",
+                  "enum": [
+                    "per_project",
+                    "fixed"
+                  ]
+                },
+                "seed": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": {}
+            }
+          },
+          "additionalProperties": {}
+        },
+        "bible_additions": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "characters": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "role": {
+                    "default": "extra",
+                    "type": "string",
+                    "enum": [
+                      "protagonist",
+                      "ally",
+                      "antagonist",
+                      "cameo",
+                      "extra"
+                    ]
+                  },
+                  "visual_description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "outfit_states": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "default": "",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "reference_image_ids": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    }
+                  },
+                  "first_appears_episode": {
+                    "default": 1,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "visual_description"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "locations": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tags": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "anchor_description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "fixed_landmarks": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "camera_angles": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "name": {
+                          "default": "",
+                          "type": "string"
+                        },
+                        "prompt": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "prompt"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "states": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "default": "",
+                          "type": "string"
+                        },
+                        "is_base": {
+                          "default": false,
+                          "type": "boolean"
+                        },
+                        "derived_from": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64,
+                              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "key_props": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "default_position": {
+                          "default": "",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "description"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "anchor_description",
+                  "camera_angles",
+                  "states"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "location_states": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "location_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "state": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "description": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "is_base": {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      "derived_from": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "location_id",
+                  "state"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "camera_angles": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "location_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "angle": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "name": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "prompt"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "location_id",
+                  "angle"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "key_props": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "location_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "prop": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "description": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "default_position": {
+                        "default": "",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "description"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "location_id",
+                  "prop"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "outfit_states": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "character_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "outfit": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                      },
+                      "description": {
+                        "default": "",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "character_id",
+                  "outfit"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "world_variables": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "integer",
+                      "number",
+                      "string",
+                      "enum"
+                    ]
+                  },
+                  "initial": {
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  },
+                  "values": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "prompt_template": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "applies_to_location_tags": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "monotonic": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "increasing",
+                          "decreasing"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "max_step_per_segment": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "initial"
+                ],
+                "additionalProperties": {}
+              }
+            }
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "schema_version",
+        "doc_type",
+        "story_id",
+        "series",
+        "segments",
+        "thumbnail",
+        "youtube"
+      ],
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "schema_version",
+    "doc_type",
+    "story_bible",
+    "episode"
+  ],
+  "additionalProperties": {}
+}

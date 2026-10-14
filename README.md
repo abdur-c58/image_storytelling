@@ -1,6 +1,8 @@
 # Slideshow Storytelling
 
-Paste one episode JSON, get a finished YouTube video: AI images (Google Flow, via the Grok bot), Fish Audio narration, licensed sound effects, Remotion cards and thumbnail, a loudness-checked mix, an H.264 render, and an upload to YouTube Studio (also via the bot).
+Paste a story bible once, then one episode JSON per video, and get a finished YouTube video: AI images (Google Flow, via the Grok bot) kept consistent by approved location and character masters, Fish Audio narration with voice tags, licensed sound effects, Remotion cards and thumbnail, a loudness-checked mix, a sentence-driven crop render, and an upload to YouTube Studio (also via the bot).
+
+Documents use schema **2.0** (`story_bible`, `episode`, or a `bundle` of both). What changed from 1.0 is in `docs/SCHEMA_V2_CHANGELOG.md`.
 
 ```text
              paste JSON                               poll over HTTPS (outbound only)
@@ -10,12 +12,26 @@ Paste one episode JSON, get a finished YouTube video: AI images (Google Flow, vi
                             ▼                                                   │
                    task queue with leases                                       │
                  ┌──────────┴───────────┐                                       │
-        Grok bot (browser)        Worker (GPU PC, Python)  ───────────────────────┘
-   generate_images (Google Flow)  voice · align · sfx · cards · thumbnail · mix · render
-   upload_youtube (Studio)        imports the existing server's Fish/Whisper/ffmpeg code
+        Grok bot (browser)              Worker (GPU PC, Python)  ─────────────────┘
+   generate_location_master         voice · align · sfx · cards · thumbnail · mix · render
+   generate_images (Google Flow)    imports the existing server's Fish/Whisper/ffmpeg code
+   upload_youtube (Studio)
 ```
 
 Nothing calls into the bot or the worker; both poll the site, so the PC needs no tunnel or open port.
+
+## Stories
+
+A **story** (`/stories`) holds the story bible: characters with outfits, locations with states, camera angles and props, world variables (day, weather, supplies), style and voice/crop defaults. Its own states:
+
+| Story state | Meaning |
+|---|---|
+| `STORY_VALIDATED` | Bible stored. |
+| `LOCATION_MASTERS_REQUESTED` | The bot is making masters: an empty plate of every location × state × angle, and a sheet of every character × outfit. |
+| `MASTERS_REVIEW` | Masters uploaded; approve or regenerate them on the Story page (prompts and "must match" landmarks are shown). |
+| `MASTERS_APPROVED` | All approved. Episodes waiting on them continue. |
+
+Episodes are validated against the story's **state**: locations change state only through `state_changes`, world variables stay consistent, characters appear from their first episode. When an episode is published, its end state is committed to the story (or commit it by hand); the Story page shows and exports it and gives the "Context for episode N" block for Claude. New things an episode introduces (`bible_additions`) are merged into the story and get masters too. With `automation.approval_gates.location_masters: false` there are no masters and nothing waits.
 
 ## Pipeline
 
@@ -23,32 +39,38 @@ Nothing calls into the bot or the worker; both poll the site, so the PC needs no
 |---|---|---|
 | `DRAFT` | Saved, not started (`automation.auto_start_on_submit: false`). | – |
 | `VALIDATED` | Accepted; tasks are queued. | site |
-| `GENERATING` | In parallel: `generate_images`, `voice` → `align`, `sfx`, `cards` (once their background images exist). Images are retried per item; only missing ones are asked for again. | bot, worker |
+| `WAITING_MASTERS` | Voice, sound and cards run; episode pictures wait until the masters they use are approved. | you |
+| `GENERATING` | In parallel: `generate_images` (approved masters attached as references), `voice` → `align`, `sfx`, `cards`. Images are retried per item; only missing ones are asked for again. | bot, worker |
 | `MIX` | Voice stem → −16 LUFS, SFX placed (beds looped and ducked), master → −14 LUFS / −1.5 dBTP. Fails if more than ±1 LU off. Writes `mix_report.json`. | worker |
 | `IMAGES_RECEIVED` / `THUMBNAIL` | Thumbnail base generated, text composed (runs alongside the mix). | bot, worker |
-| `RENDER` | Ken-Burns clips, transitions, NVENC (or libx264) encode, ffprobe check, preview copy. | worker |
+| `RENDER` | Crop-plan clips (sub-pixel windows from the full-resolution source), transitions, NVENC (or libx264) encode, ffprobe check, preview copy. | worker |
 | `REVIEW` | Waiting at an approval gate (`before_render` or `before_publish`), if enabled. | you |
 | `PUBLISH_REQUESTED` → `PUBLISHED` | Bot uploads with the exact title/description/visibility and reports the URL. | bot |
 | `FAILED` | A task hit its retry limit. Fix, then **Retry** in the project page. | – |
 
-To start episodes without the editor, drop one or more episode JSON files onto the **Projects** page (or use **Choose files**). A dialog asks how automation should run: **Run to YouTube** (no stops), **Review before publishing** (waits for your approval before upload), **Import only** (draft), or **Use each file's own settings**. If a series/episode number already exists, it offers to replace it (the old project is archived and its queued tasks cancelled). Invalid files are listed with their first error and a **Fix in editor** button.
+After `align`, the site splits each segment's narration into sentences, times them with Whisper's words and writes a **crop plan** into `timeline.json`: one-sentence segments stay full frame, two-sentence segments crop on the second, longer ones alternate full frame and a held crop (typically 4–10%, never over 20%), with moves placed in the gaps between sentences. The project page shows each plan on a mini timeline with a per-segment **Auto / On / Off** toggle and **Re-roll**; both redo only the render. Plans are seeded, so re-renders are identical unless re-rolled.
 
-Stages run as soon as their inputs exist, so several can be active at once; the badge shows the furthest one. Every step is resumable: tasks are leased with heartbeats; a crashed agent's lease expires and the task is retried with backoff, then dead-lettered. Outputs are content-addressed (sha256), so re-runs skip work that already exists. The project page can regenerate one image, one voice line, the thumbnail, or swap an SFX choice, and only the affected downstream stages re-run.
+Voice: `narration` is clean text; `tts_text` carries Fish Drama 3 tags (`[pause]`, `<whisper>…</whisper>`). Whisper QA flags a segment where a tag was read aloud; the second time it switches that segment to **split and silence** (spoken in pieces cut at pause tags and sentence ends, joined with exact silences).
+
+To start episodes without the editor, drop one or more story bible, episode or bundle JSON files onto the **Projects** page (or use **Choose files**). Story bibles are saved first. A dialog asks how automation should run: **Run to YouTube** (no stops), **Review before publishing** (waits for your approval before upload), **Import only** (draft), or **Use each file's own settings**. If a series/episode number already exists, it offers to replace it (the old project is archived and its queued tasks cancelled). Invalid files are listed with their first error and a **Fix in editor** button.
+
+Stages run as soon as their inputs exist, so several can be active at once; the badge shows the furthest one. Every step is resumable: tasks are leased with heartbeats; a crashed agent's lease expires and the task is retried with backoff, then dead-lettered. Outputs are content-addressed (sha256), so re-runs skip work that already exists. The project page can regenerate one image, one voice line, the thumbnail, re-roll crops, or swap an SFX choice, and only the affected downstream stages re-run. Each picture has a prompt inspector showing the pieces its prompt was assembled from (style, location anchor, state, angle, world, characters, scene) and the masters sent as references.
 
 ## Repository layout
 
 | Path | What |
 |---|---|
-| `app/`, `lib/`, `proxy.ts` | Website: dashboard, episode editor with live validation, bot console (`/bot`), bot/worker APIs. |
-| `lib/episode/` | Zod schema (source of truth), validator with line/column errors, prompt assembly. JSON Schema export in `schema/episode.schema.json`. |
-| `lib/pipeline/` | State machine (`advance.ts`), task payloads, completion handling, description/chapters/credits. |
+| `app/`, `lib/`, `proxy.ts` | Website: dashboard, story/episode editor with live validation, Story pages, bot console (`/bot`), bot/worker APIs. |
+| `lib/episode/` | Zod schemas (source of truth), validator with line/column errors, continuity checks, Fish tag grammar, sentence splitter, prompt assembly, v1→v2 converter. JSON Schemas exported to `schema/` (`npm run schema:export`). |
+| `lib/crop/` | Crop engine: seeded PRNG, sentence timing, crop planning (property-tested). |
+| `lib/pipeline/` | State machine (`advance.ts`), stories and masters (`story.ts`), crop planning (`crop.ts`), task payloads, completion handling, description/chapters/credits. |
 | `drizzle/` | SQL migrations. |
 | `../story-telling-worker/` | Not in this repo. Python worker (`python -m slideshow_worker`) and its `remotion/` project (card templates, icons, thumbnail composition). Runs on the GPU PC; never deployed to Vercel. |
 | `bot/RUNBOOK.md` | Instructions for the Grok bot (served at `/api/bot/runbook`). |
 | `scripts/fake-bot.ts` | Stand-in bot for testing (placeholder images, fake YouTube URL). |
 | `scripts/e2e-dry-run.ts` | Full end-to-end test. |
-| `fixtures/` | `minimal_3_segments.json`, `full_example.json`. |
-| `docs/` | `EXISTING_SERVER_AUDIT.md`, `CLAUDE_SCRIPT_CONTRACT.md` (give this to Claude when writing episodes). |
+| `fixtures/` | `story_bible_example.json`, `episode_minimal.json`, `episode_full.json`; the 1.0 examples are in `fixtures/v1/`. |
+| `docs/` | `CLAUDE_SCRIPT_CONTRACT.md` (give this to Claude when writing stories and episodes), `SCHEMA_V2_CHANGELOG.md`, `EXISTING_SERVER_AUDIT.md`. |
 
 ## Local development
 
@@ -70,7 +92,7 @@ With no `DATABASE_URL` the site uses an embedded PGlite database in `.data/pglit
 npm run e2e
 ```
 
-Starts a throwaway site, the fake bot and the worker with `DRY_RUN=1`, runs `fixtures/minimal_3_segments.json` to `PUBLISHED` and checks the final MP4 with ffprobe (H.264 1920×1080 + AAC). Takes about a minute. `npm run e2e -- fixtures/full_example.json --all-features` runs the 13-image example with every transition, motion, burned-in captions and an outro (about 2 minutes; approval gates are switched off for the run). Output stays in `.data/e2e-<timestamp>/`. To watch it in the browser instead, run `npm run dev` with `DRY_RUN=1`, then in two more terminals:
+Starts a throwaway site, the fake bot and the worker with `DRY_RUN=1`, posts `fixtures/story_bible_example.json` + `fixtures/episode_minimal.json` as a bundle, approves the masters through the admin API when they arrive, runs to `PUBLISHED`, and checks the final MP4 with ffprobe (H.264 1920×1080 + AAC), that a crop plan was written, and that the story state was committed. Takes about a minute. `npm run e2e -- fixtures/episode_full.json --all-features` runs the full example (state changes, bible additions, reuse, cards) with burned-in captions and an outro; `--no-masters` switches the masters gate off. Render/publish gates are switched off for the run. Output stays in `.data/e2e-<timestamp>/`. To watch it in the browser instead, run `npm run dev` with `DRY_RUN=1`, then in two more terminals:
 
 ```powershell
 $env:BOT_TOKEN="<bot token>"; npm run fake-bot
@@ -80,8 +102,8 @@ $env:WORKER_TOKEN="<worker token>"; $env:DRY_RUN="1"; npm run worker
 ### Tests
 
 ```powershell
-npm test               # schema, validator, queue/state machine on in-memory Postgres
-npm run test:worker    # timeline, captions, WER, SFX licence filter and ranking
+npm test               # schemas, validator, continuity, crop property tests, queue/state machine on in-memory Postgres
+npm run test:worker    # timeline, captions, WER, SFX licence filter and ranking, crop windows, tag splitting
 npm run typecheck
 npm run e2e
 ```
@@ -129,8 +151,13 @@ Not used: BBC RemArc (non-commercial). Each clip's source, author and licence ar
 - Every ffmpeg/ffprobe/node call uses argument arrays; long filter graphs go through files. No shell strings.
 - Secrets are never logged; the worker reports only whether each key is set.
 
+## Crop rendering cost
+
+`python tools/bench_crop.py` in the worker renders a 12 s segment at 1920×1080 / 30 fps from a 2560×1440 source, as a still and with a 4-move crop plan. On the dev PC (libx264 veryfast, noise image as worst case): still 6.05 s, crop plan 6.18 s, so about 2× realtime either way. Frames are sampled with Pillow's Lanczos from float boxes (no whole-pixel snapping), and held windows reuse the previous frame, so the crop path costs about the same as a still.
+
 ## Known gaps
 
 - Background music (`audio.music`) is accepted in the schema but not mixed yet.
 - Rate limiting is per serverless instance.
 - Captions are burned in only when `render.burn_in_captions` is true; YouTube captions are not uploaded (the SRT is stored with the project).
+- "Upscaling" narrow pictures is Lanczos resampling, not an AI upscaler; such pictures are flagged so you can regenerate them.

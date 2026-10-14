@@ -364,6 +364,28 @@ describe("stories (schema 2.0)", () => {
     expect((await project(id)).state).toBe("PUBLISHED");
   });
 
+  it("merges bible_additions into the story so their masters are made, and re-imports cleanly", async () => {
+    await clearQueue();
+    const raw = fullRaw();
+    raw.story_id = "gated-story";
+    const text = JSON.stringify(raw);
+    const out = await ingestDocument(db, text);
+    expect(out.error).toBeNull();
+    const id = out.projectId!;
+    const keys = (await db.select().from(storyMasters).where(eq(storyMasters.storyId, "gated-story"))).map((m) => m.masterKey);
+    expect(keys).toContain("loc/rooftop/clear/c");
+    expect(keys).toContain("char/protagonist/bandaged");
+    expect((await project(id)).state).toBe("WAITING_MASTERS");
+
+    await drain(id, { types: ["voice", "sfx", "cards", "align", "mix", "generate_location_master"] });
+    expect(await approveAllGenerated(db, "gated-story")).toBeGreaterThan(0);
+    await drain(id);
+    expect((await project(id)).state).toBe("PUBLISHED");
+
+    const again = await ingestDocument(db, text);
+    expect(again.validation.errors).toEqual([]);
+  });
+
   it("writes a crop plan after align, and a re-roll redoes only the render", async () => {
     await clearQueue();
     const id = await makeProject(fullRaw(), (raw) => {

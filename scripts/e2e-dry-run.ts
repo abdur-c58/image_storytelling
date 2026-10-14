@@ -1,7 +1,8 @@
 /**
- * End-to-end dry run: minimal fixture -> PUBLISHED, then ffprobe the final MP4.
+ * End-to-end dry run: story bible + episode bundle -> location masters (approved here) -> PUBLISHED, then
+ * ffprobe the final MP4 and check the crop plan reached the timeline.
  *
- *   npm run e2e
+ *   npm run e2e [episode.json] [--all-features] [--no-masters]
  *
  * Starts `next dev` on a throwaway PGlite database and local storage, the fake bot and the Python
  * worker with DRY_RUN=1 (no Fish Audio, Whisper, Openverse or YouTube calls). Needs ffmpeg/ffprobe,
@@ -19,9 +20,12 @@ const base = `http://localhost:${port}`;
 const runDir = path.join(root, ".data", `e2e-${Date.now()}`);
 const storageDir = path.join(runDir, "storage");
 const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const fixture = positional[0] ?? path.join(root, "fixtures", "minimal_3_segments.json");
+const fixture = positional[0] ?? path.join(root, "fixtures", "episode_minimal.json");
+const storyFixture = path.join(root, "fixtures", "story_bible_example.json");
 /** --all-features: also burn in captions and add an outro, to exercise more of the renderer. */
 const allFeatures = process.argv.includes("--all-features");
+/** --no-masters: switch the location-masters gate off (episode pictures start immediately). */
+const noMasters = process.argv.includes("--no-masters");
 const timeoutMin = Number(process.env.E2E_TIMEOUT_MIN ?? 20);
 const python = process.env.PYTHON ?? "python";
 const workerDir = path.resolve(process.env.STORY_WORKER_DIR ?? path.join(root, "..", "story-telling-worker"));
@@ -59,6 +63,18 @@ function stopAll() {
     if (c.exitCode !== null) continue;
     if (process.platform === "win32" && c.pid) spawnSync("taskkill", ["/pid", String(c.pid), "/T", "/F"], { stdio: "ignore" });
     else c.kill("SIGTERM");
+  }
+  // next dev's server process can outlive the killed tree on Windows; free the port too.
+  if (process.platform === "win32") {
+    const netstat = spawnSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
+    const pids = new Set(
+      (netstat.stdout ?? "")
+        .split(/\r?\n/)
+        .map((l) => l.trim().split(/\s+/))
+        .filter((f) => f[1]?.endsWith(`:${port}`) && f[3] === "LISTENING")
+        .map((f) => f[4]),
+    );
+    for (const pid of pids) spawnSync("taskkill", ["/pid", pid, "/T", "/F"], { stdio: "ignore" });
   }
 }
 
@@ -100,6 +116,11 @@ async function main() {
   if (!existsSync(path.join(workerDir, "slideshow_worker"))) {
     throw new Error(`worker not found in ${workerDir}; set STORY_WORKER_DIR`);
   }
+  const taken = await fetch(`${base}/api/health`).then(
+    () => true,
+    () => false,
+  );
+  if (taken) throw new Error(`port ${port} is already in use (a leftover e2e server?); stop it or set E2E_PORT`);
   mkdirSync(storageDir, { recursive: true });
   const siteEnv = {
     DATABASE_URL: `pglite:${path.join(runDir, "pglite")}`,
@@ -119,18 +140,24 @@ async function main() {
   await waitForHealth(site);
   const cookie = await login();
 
-  // Approval gates would wait for a click, so the unattended run switches them off.
+  // Render/publish gates would wait for a click, so the unattended run switches them off. Masters are
+  // approved below through the admin API, the way an operator would on the Story page.
   const episode = JSON.parse(readFileSync(fixture, "utf8"));
+  const bible = JSON.parse(readFileSync(storyFixture, "utf8"));
+  if (noMasters) bible.automation.approval_gates.location_masters = false;
   episode.automation = { ...episode.automation, approval_gates: { before_render: false, before_publish: false } };
-  if (allFeatures) episode.render = { ...episode.render, burn_in_captions: true, caption_style: "bottom_bar", outro_sec: 1.5 };
+  if (allFeatures) {
+    episode.overrides = { ...episode.overrides, render: { burn_in_captions: true, caption_style: "bottom_bar", outro_sec: 1.5 } };
+  }
+  const bundle = { schema_version: "2.0", doc_type: "bundle", story_bible: bible, episode };
   const res = await fetch(`${base}/api/projects`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify(episode, null, 2),
+    body: JSON.stringify(bundle, null, 2),
   });
-  const created = (await res.json()) as { id?: string; error?: string; errors?: unknown };
+  const created = (await res.json()) as { id?: string; story_id?: string; error?: string; errors?: unknown };
   if (!res.ok || !created.id) throw new Error(`create failed: ${JSON.stringify(created)}`);
-  console.log(`[e2e] project ${created.id}`);
+  console.log(`[e2e] story ${created.story_id}, project ${created.id}`);
 
   start("bot", process.execPath, [path.join(root, "node_modules", "tsx", "dist", "cli.mjs"), "scripts/fake-bot.ts", "--interval", "2"], {
     APP_BASE_URL: base,
@@ -159,8 +186,29 @@ async function main() {
     if (line !== last) console.log(`[e2e] ${line}`);
     last = line;
     if (current.state === "PUBLISHED" || current.state === "FAILED") break;
+    if (current.state === "WAITING_MASTERS") {
+      const s = (await (await fetch(`${base}/api/stories/${created.story_id}`, { headers: { cookie } })).json()) as {
+        masters: { status: string }[];
+      };
+      if (s.masters.some((m) => m.status === "generated")) {
+        const a = await fetch(`${base}/api/stories/${created.story_id}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ action: "approve_all_masters" }),
+        });
+        console.log(`[e2e] approved masters: ${JSON.stringify(await a.json())}`);
+      }
+    }
   }
   if (!status || status.state !== "PUBLISHED") throw new Error(`project ended in ${status?.state}: ${status?.error ?? "timeout"}`);
+  const crop = status.outputs.crop as { segments: Record<string, { sentences: unknown[]; crop_plan: { kind: string }[] }> } | undefined;
+  if (!crop) throw new Error("no crop plan was written after alignment");
+  const crops = Object.values(crop.segments).reduce((n, s) => n + s.crop_plan.filter((k) => k.kind === "crop").length, 0);
+  console.log(`[e2e] crop plan: ${crops} crop(s) over ${Object.keys(crop.segments).length} segments`);
+  const story = (await (await fetch(`${base}/api/stories/${created.story_id}`, { headers: { cookie } })).json()) as {
+    story_state: { committed_through_episode: number };
+  };
+  if (story.story_state.committed_through_episode < episode.series.episode_number) throw new Error("story state was not committed on publish");
 
   const finals = findFiles(storageDir, (p) => p.endsWith(".mp4") && p.split(path.sep).includes("final"));
   if (finals.length !== 1) throw new Error(`expected one final video, found ${finals.length}`);

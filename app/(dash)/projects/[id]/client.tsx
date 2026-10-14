@@ -43,6 +43,42 @@ export function ActionButton({
   );
 }
 
+const CROP_CHOICES: { value: boolean | null; label: string }[] = [
+  { value: null, label: "Auto" },
+  { value: true, label: "On" },
+  { value: false, label: "Off" },
+];
+
+/** Per-segment crop setting: Auto follows the crop policy. */
+export function CropToggle({ projectId, segmentId, enabled }: { projectId: string; segmentId: string; enabled: boolean | null }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-col">
+      <span className="inline-flex overflow-hidden rounded-full border border-line text-xs">
+        {CROP_CHOICES.map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            disabled={pending || c.value === enabled}
+            className={`px-2 py-0.5 transition-colors ${c.value === enabled ? "bg-panel text-foreground" : "text-muted hover:text-foreground"}`}
+            onClick={() => {
+              setError(null);
+              start(async () => {
+                const res = await projectAction(projectId, { kind: "crop_toggle", segmentId, enabled: c.value });
+                if (res?.error) setError(res.error);
+              });
+            }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </span>
+      {error && <span className="mt-1 text-xs text-bad">{error}</span>}
+    </span>
+  );
+}
+
 export function DeleteProjectButton({
   projectId,
   title,
