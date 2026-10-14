@@ -466,6 +466,37 @@ describe("schema 2.1: dialogue and channel cast", () => {
     expect(Object.keys(hydrated.payload.episode.voices).sort()).toEqual(["dex", "mara", "narrator"]);
   });
 
+  it("applies voice ids entered on the website to voice tasks and voice tests", async () => {
+    await clearQueue();
+    const { saveVoiceSettings, setStoryVoice, storyVoices } = await import("@/lib/pipeline/voices");
+    const { requestVoiceSample } = await import("@/lib/pipeline/story");
+    await saveVoiceSettings(db, { default_voice_id: "site-default", channel: { mara: "site-mara", dex: "ignored-not-channel" } });
+    await setStoryVoice(db, "rooftop-test", "dex", "story-dex");
+    await expect(setStoryVoice(db, "rooftop-test", "dex", "bad id!")).rejects.toThrow(/letters, digits/);
+
+    const { voices, sources } = await storyVoices(db, "rooftop-test");
+    expect(voices.narrator.voice_id).toBe("site-default");
+    expect(voices.mara.voice_id).toBe("site-mara");
+    expect(voices.dex.voice_id).toBe("story-dex");
+    expect(sources).toEqual({ narrator: "default_settings", mara: "channel_settings", dex: "story_page" });
+
+    const id = await makeProject(minimalRaw());
+    const voiceTask = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "voice"))))[0];
+    const hydrated = (await hydrateTask(db, voiceTask, "https://site.test")) as { payload: { episode: Episode } };
+    expect(hydrated.payload.episode.voices.narrator.voice_id).toBe("site-default");
+    expect(hydrated.payload.episode.voices.dex.voice_id).toBe("story-dex");
+
+    await requestVoiceSample(db, "rooftop-test", "mara");
+    const [sample] = await db.select().from(tasks).where(and(eq(tasks.storyId, "rooftop-test"), eq(tasks.type, "voice_sample")));
+    expect((sample.payload as { voice: { voice_id: string } }).voice.voice_id).toBe("site-mara");
+
+    await setStoryVoice(db, "rooftop-test", "dex", "");
+    await saveVoiceSettings(db, { default_voice_id: "", channel: {} });
+    const after = await storyVoices(db, "rooftop-test");
+    expect(after.voices.dex.voice_id).toBe("test-voice-dex");
+    expect(after.sources.narrator).toBe("worker_env");
+  });
+
   it("registers channel characters, expands refs in a later story and reuses approved sheets", async () => {
     await clearQueue();
     const { approveMaster, masterCandidates } = await import("@/lib/pipeline/story");

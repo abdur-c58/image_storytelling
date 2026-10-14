@@ -35,6 +35,8 @@ Episodes are validated against the story's **state**: locations change state onl
 
 The story state also tracks each character's **status** (with you, separated, missing, captive, returned, unknown, deceased), changed by an episode's `character_status_changes`. Absent characters can only appear in flashbacks, over radio or phone, or in written notes. The Story page's **Cast** panel shows each character's status, scope and voice. Use **Test voice** there to hear a short sample in that voice (a `voice_sample` worker task), and **Add to channel cast** to make a character recurring.
 
+**Voice ids without editing JSON or env.** Settings → **Voices** holds a default voice id (used by the narrator and any speaker without one) and a voice id per channel character (used in every story). Each row of the Story page's Cast panel also has a voice id field for that story only. Priority: Story page, then Settings channel voice, then the story JSON, then the Settings default, then the worker's `FISH_VOICE_ID`. The ids are applied when a voice task or voice test is handed to the worker, so a change takes effect on the next voice task. To hear it in an existing episode, regenerate that episode's voice.
+
 **Channel cast.** Characters with `scope: "channel"` are stored in a channel-wide registry (`channel_characters`) the first time a story uses them. Later stories write `{ "ref": "mara" }` instead of redefining them. Their description, voice and reference images come from the registry, and their approved masters are copied in, so the face and voice stay the same across stories. Changing a channel character from another story is rejected with a list of the differences.
 
 ## Pipeline

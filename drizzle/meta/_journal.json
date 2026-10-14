@@ -29,6 +29,13 @@
       "when": 1791939201588,
       "tag": "0003_first_ikaris",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791940060570,
+      "tag": "0004_rapid_mantis",
+      "breakpoints": true
     }
   ]
 }

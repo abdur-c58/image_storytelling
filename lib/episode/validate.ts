@@ -501,7 +501,7 @@ function checkBibleOnly(bible: StoryBible, issues: IssueCollector, prefix: Issue
     }
   });
   if (!bible.narrator.voice?.voice_id.trim() && !bible.defaults.voice.voice_id.trim()) {
-    issues.warn([...prefix, "defaults", "voice", "voice_id"], "No narrator voice_id; the worker's default FISH_VOICE_ID will be used.");
+    issues.warn([...prefix, "defaults", "voice", "voice_id"], "No narrator voice_id; the default voice from Settings (or the worker's FISH_VOICE_ID) will be used.");
   }
 }
 

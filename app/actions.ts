@@ -31,6 +31,7 @@ import {
   regenerateMaster,
   requestVoiceSample,
 } from "@/lib/pipeline/story";
+import { saveVoiceSettings, setStoryVoice, type VoiceSettings } from "@/lib/pipeline/voices";
 
 export interface CreateState {
   error: string | null;
@@ -204,7 +205,8 @@ export type StoryAction =
   | { kind: "regen_master"; masterKey: string }
   | { kind: "commit_state"; projectId: string }
   | { kind: "test_voice"; speaker: string; text?: string }
-  | { kind: "promote_character"; characterId: string };
+  | { kind: "promote_character"; characterId: string }
+  | { kind: "set_voice"; speaker: string; voiceId: string };
 
 export async function storyAction(storyId: string, action: StoryAction): Promise<{ error: string | null }> {
   await requireAdmin();
@@ -228,6 +230,9 @@ export async function storyAction(storyId: string, action: StoryAction): Promise
         break;
       case "promote_character":
         await promoteCharacter(db, storyId, action.characterId);
+        break;
+      case "set_voice":
+        await setStoryVoice(db, storyId, action.speaker, action.voiceId);
         break;
     }
   } catch (error) {
@@ -261,4 +266,15 @@ export async function revokeTokenAction(id: string): Promise<void> {
   await requireAdmin();
   await revokeApiToken(id);
   refresh();
+}
+
+export async function saveVoiceSettingsAction(settings: VoiceSettings): Promise<{ error: string | null }> {
+  await requireAdmin();
+  try {
+    await saveVoiceSettings(await getDb(), settings);
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+  refresh();
+  return { error: null };
 }

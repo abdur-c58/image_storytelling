@@ -31,8 +31,17 @@ export const stories = pgTable("stories", {
   /** { current, by_episode, committed_through_episode } — see lib/episode/continuity.ts */
   storyState: jsonb("story_state").notNull(),
   warnings: jsonb("warnings").notNull().default(sql`'[]'::jsonb`),
+  /** speaker id → Fish voice_id entered on the Story page; wins over the bible and Settings. */
+  voiceOverrides: jsonb("voice_overrides").notNull().default(sql`'{}'::jsonb`),
   archived: boolean("archived").notNull().default(false),
   createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}).enableRLS();
+
+/** Site-wide settings edited in the dashboard (key → JSON value). */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
   updatedAt: updatedAt(),
 }).enableRLS();
 

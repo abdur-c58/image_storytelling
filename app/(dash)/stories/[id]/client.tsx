@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { deleteStoryAction, storyAction, type StoryAction } from "@/app/actions";
 import type { PromptPart } from "@/lib/episode/prompt";
+import type { VoiceSource } from "@/lib/pipeline/voices";
 import { PromptInspector } from "../../projects/[id]/inspect";
 
 export interface MasterView {
@@ -65,6 +66,9 @@ export interface CastView {
   status: string | null;
   lastSeen: number | null;
   voiceId: string;
+  voiceSource: VoiceSource | null;
+  /** voice_id set on this page for this story ("" = none). */
+  voiceOverride: string;
   voiceGroup: string | null;
   canSpeak: boolean;
   sampleUrl: string | null;
@@ -113,7 +117,7 @@ export function CastPanel({ storyId, cast }: { storyId: string; cast: CastView[]
               <td className="pr-3">
                 {c.canSpeak ? (
                   <>
-                    <p className="font-mono">{c.voiceId || <span className="text-muted">worker default</span>}</p>
+                    <VoiceIdEditor storyId={storyId} cast={c} />
                     {c.voiceGroup && <p className="text-muted">group {c.voiceGroup}</p>}
                   </>
                 ) : (
@@ -157,6 +161,53 @@ export function CastPanel({ storyId, cast }: { storyId: string; cast: CastView[]
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+const VOICE_SOURCE_LABEL: Record<VoiceSource, string> = {
+  story_page: "set here",
+  channel_settings: "channel voice (Settings)",
+  story_json: "from the story JSON",
+  default_settings: "default voice (Settings)",
+  worker_env: "worker FISH_VOICE_ID",
+};
+
+function VoiceIdEditor({ storyId, cast }: { storyId: string; cast: CastView }) {
+  const [value, setValue] = useState(cast.voiceOverride);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const save = (voiceId: string) =>
+    start(async () => {
+      const res = await storyAction(storyId, { kind: "set_voice", speaker: cast.id, voiceId });
+      setError(res.error);
+      if (!res.error) setValue(voiceId);
+    });
+  const dirty = value.trim() !== cast.voiceOverride;
+  return (
+    <div className="flex min-w-60 flex-col gap-1">
+      <p className="font-mono">{cast.voiceId || <span className="text-muted">none</span>}</p>
+      {cast.voiceSource && <p className="text-muted">{VOICE_SOURCE_LABEL[cast.voiceSource]}</p>}
+      <div className="flex gap-1">
+        <input
+          className="input h-7 flex-1 py-0 font-mono text-xs"
+          placeholder="New voice id for this story"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && dirty && save(value)}
+        />
+        {dirty && (
+          <button className="btn px-2 py-0.5 text-xs" disabled={pending} onClick={() => save(value)}>
+            Save
+          </button>
+        )}
+        {!dirty && cast.voiceOverride && (
+          <button className="btn px-2 py-0.5 text-xs" disabled={pending} onClick={() => save("")} title="Go back to the story JSON or Settings voice">
+            Clear
+          </button>
+        )}
+      </div>
+      {error && <p className="text-bad">{error}</p>}
     </div>
   );
 }

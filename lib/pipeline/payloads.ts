@@ -3,10 +3,11 @@ import { and, eq } from "drizzle-orm";
 import { assetRef, readyAssetMap, signedDownloadLink, type AssetRef } from "@/lib/assets";
 import type { Db } from "@/lib/db";
 import { assets, projects, segments, sfxCues, storyMasters, type TaskRow } from "@/lib/db/schema";
-import { YOUTUBE_CATEGORIES } from "@/lib/episode/constants";
+import { NARRATOR, YOUTUBE_CATEGORIES } from "@/lib/episode/constants";
 import type { ImageItem } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "./requirements";
+import { episodeVoices } from "./voices";
 
 /** Opens the bot console on this leased task (the console needs a bot-token sign-in). */
 export function uploadPageUrl(baseUrl: string, taskId: string, leaseId: string): string {
@@ -137,7 +138,18 @@ export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promi
     case "voice": {
       const rows = await db.select().from(segments).where(eq(segments.projectId, task.projectId));
       const voiceModes = Object.fromEntries(rows.map((r) => [r.segmentId, r.voiceMode]));
-      return { ...base, payload: { ...payload, episode: ep, voice_modes: voiceModes } };
+      const stored = ep.voices ?? {
+        [NARRATOR]: {
+          voice_id: ep.voice.voice_id,
+          model: ep.voice.model,
+          speed: ep.voice.speed,
+          gain_db: 0,
+          style_notes: ep.voice.style_notes,
+          pronunciation_overrides: ep.voice.pronunciation_overrides,
+        },
+      };
+      const voices = await episodeVoices(db, project.storyId, stored);
+      return { ...base, payload: { ...payload, episode: { ...ep, voices }, voice_modes: voiceModes } };
     }
     case "align":
       return {

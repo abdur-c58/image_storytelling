@@ -356,7 +356,7 @@ export function checkContinuity(
       if (!c.voice) {
         issues.error([...lp, "speaker"], `${seg.id}: ${c.id} has no "voice" in the story bible, so it can't speak lines.`);
       } else if (!c.voice.voice_id) {
-        issues.warn([...lp, "speaker"], `${seg.id}: ${c.id} has no voice_id; the worker's default voice (the narrator's) will be used.`);
+        issues.warn([...lp, "speaker"], `${seg.id}: ${c.id} has no voice_id; set one on the Story page, or the default voice from Settings will be used.`);
       }
       const remote = (REMOTE_VOICE_EFFECTS as readonly string[]).includes(line.voice_effect) || line.source === "written";
       if (present && absentHere(c.id) && !remote) {

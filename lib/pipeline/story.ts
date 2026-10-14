@@ -6,12 +6,13 @@ import { assets, projects, stories, storyMasters, tasks, type StoryMasterRow, ty
 import { initialStoryState, type StoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
 import { buildMasterItems, type MasterItem } from "@/lib/episode/prompt";
 import { NARRATOR } from "@/lib/episode/constants";
-import { applyBibleAdditions, speakerVoices, upgradeStoredBible } from "@/lib/episode/resolve";
+import { applyBibleAdditions, upgradeStoredBible } from "@/lib/episode/resolve";
 import type { BibleAdditions, StoryBible } from "@/lib/episode/schema";
 import type { StoryContext } from "@/lib/episode/validate";
 import { createTask, logEvent, type Owner } from "@/lib/queue";
 import { getStorage, storyObjectPrefix } from "@/lib/storage";
 import { loadCastRegistry, recordChannelMaster, registerChannelCast, reuseChannelMasters } from "./cast";
+import { storyVoices } from "./voices";
 
 export const STORY_STATES = ["STORY_VALIDATED", "LOCATION_MASTERS_REQUESTED", "MASTERS_REVIEW", "MASTERS_APPROVED"] as const;
 export type StoryStateName = (typeof STORY_STATES)[number];
@@ -173,7 +174,7 @@ export async function requestVoiceSample(db: Db, storyId: string, speaker: strin
   const story = await getStory(db, storyId);
   if (!story) throw new Error("Story not found.");
   const bible = story.bible as StoryBible;
-  const voices = speakerVoices(bible, bible.defaults.voice);
+  const { voices } = await storyVoices(db, storyId);
   const voice = voices[speaker];
   if (!voice) throw new Error(`${speaker} has no voice in the story bible.`);
   const name = speaker === NARRATOR ? "the narrator" : (bible.characters.find((c) => c.id === speaker)?.name ?? speaker);

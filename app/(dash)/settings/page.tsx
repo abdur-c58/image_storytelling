@@ -3,7 +3,10 @@ import { dbDriver, getDb } from "@/lib/db";
 import { agents, apiTokens, usageEvents } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { ago, PageHeader } from "../ui";
+import { listChannelCharacters } from "@/lib/pipeline/cast";
+import { getVoiceSettings } from "@/lib/pipeline/voices";
 import { TokenManager } from "./tokens";
+import { VoiceSettingsForm } from "./voices";
 
 /** Names only. Values are never read into the page. */
 const SITE_KEYS = [
@@ -40,7 +43,7 @@ function isStale(lastSeen: Date): boolean {
 export default async function SettingsPage() {
   const db = await getDb();
   const since = daysAgo(30);
-  const [tokens, agentRows, usage, driver] = await Promise.all([
+  const [tokens, agentRows, usage, driver, voiceSettings, channelCast] = await Promise.all([
     db.select().from(apiTokens).orderBy(desc(apiTokens.createdAt)),
     db.select().from(agents).orderBy(desc(agents.lastSeenAt)),
     db
@@ -53,6 +56,8 @@ export default async function SettingsPage() {
       .where(gt(usageEvents.createdAt, since))
       .groupBy(usageEvents.provider, usageEvents.unit),
     dbDriver(),
+    getVoiceSettings(db),
+    listChannelCharacters(db),
   ]);
   return (
     <>
@@ -112,6 +117,14 @@ export default async function SettingsPage() {
             })}
           </div>
         </section>
+        <VoiceSettingsForm
+          defaultVoiceId={voiceSettings.default_voice_id}
+          channelVoices={voiceSettings.channel}
+          cast={channelCast.map((c) => {
+            const voice = (c.definition as { voice?: { voice_id?: string } | null }).voice;
+            return { id: c.id, name: c.name, jsonVoiceId: voice?.voice_id ?? "", canSpeak: !!voice };
+          })}
+        />
         <TokenManager
           tokens={tokens.map((t) => ({
             id: t.id,

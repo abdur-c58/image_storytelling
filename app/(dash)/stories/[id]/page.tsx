@@ -11,6 +11,7 @@ import type { StoryBible } from "@/lib/episode/schema";
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
 import { getStory, masterAssetKey } from "@/lib/pipeline/story";
+import { storyVoices } from "@/lib/pipeline/voices";
 import { CopyButton, AutoRefresh } from "../../projects/[id]/client";
 import { ago, StateBadge } from "../../ui";
 import { CastPanel, DeleteStoryButton, MasterCard, StoryActionButton, type CastView, type MasterView } from "./client";
@@ -78,6 +79,13 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
     return c ? { key, url: c.url, approved: m?.status === "approved" } : null;
   };
   const status = state.current.character_status ?? {};
+  const effective = await storyVoices(db, storyId);
+  const overrides = story.voiceOverrides as Record<string, string>;
+  const voiceOf = (speaker: string) => ({
+    voiceId: effective.voices[speaker]?.voice_id ?? "",
+    voiceSource: effective.sources[speaker] ?? null,
+    voiceOverride: overrides[speaker] ?? "",
+  });
   const cast: CastView[] = [
     {
       id: NARRATOR,
@@ -86,7 +94,7 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
       scope: null,
       status: null,
       lastSeen: null,
-      voiceId: bible.narrator.voice?.voice_id || bible.defaults.voice.voice_id || "",
+      ...voiceOf(NARRATOR),
       voiceGroup: null,
       canSpeak: true,
       sampleUrl: sampleUrls.get(NARRATOR) ?? null,
@@ -99,7 +107,7 @@ export default async function StoryPage({ params }: PageProps<"/stories/[id]">) 
       scope: c.scope,
       status: status[c.id]?.status ?? c.initial_status,
       lastSeen: status[c.id]?.last_seen_episode ?? null,
-      voiceId: c.voice?.voice_id ?? "",
+      ...voiceOf(c.id),
       voiceGroup: c.voice_group,
       canSpeak: !!c.voice,
       sampleUrl: sampleUrls.get(c.id) ?? null,
