@@ -13,7 +13,7 @@ const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : u
 
 const TYPE_LABEL: Record<string, string> = {
   generate_images: "Episode images",
-  generate_location_master: "Location masters",
+  generate_location_master: "Masters",
   generate_character_group_master: "Group masters",
   upload_youtube: "YouTube upload",
   voice: "Voice",
@@ -28,9 +28,20 @@ const TYPE_LABEL: Record<string, string> = {
 
 const FINISHED_TONE: Record<string, string> = { done: "text-ok", failed: "text-warn", dead: "text-bad", cancelled: "text-muted", superseded: "text-muted" };
 
-function itemCount(t: TaskRow): number | null {
-  const items = (t.payload as { items?: unknown[] }).items;
-  return Array.isArray(items) ? items.length : null;
+const KIND_WORD: Record<string, [string, string]> = {
+  location: ["location", "locations"],
+  character: ["character sheet", "character sheets"],
+  group: ["group", "groups"],
+};
+
+/** "6 locations, 2 character sheets" for master batches; "3 items" otherwise. */
+function itemSummary(t: TaskRow): string | null {
+  const items = (t.payload as { items?: { kind?: string }[] }).items;
+  if (!Array.isArray(items)) return null;
+  const counts = new Map<string, number>();
+  for (const i of items) if (i.kind && KIND_WORD[i.kind]) counts.set(i.kind, (counts.get(i.kind) ?? 0) + 1);
+  if (!counts.size) return `${items.length} item${items.length === 1 ? "" : "s"}`;
+  return [...counts].map(([k, n]) => `${n} ${KIND_WORD[k][n === 1 ? 0 : 1]}`).join(", ");
 }
 
 function inFuture(date: Date, now: Date): string {
@@ -98,12 +109,12 @@ export default async function QueuePage({ searchParams }: PageProps<"/queue">) {
   };
 
   const head = (t: TaskRow) => {
-    const n = itemCount(t);
+    const summary = itemSummary(t);
     return (
       <div className="min-w-0">
         <p className="font-medium">
           {TYPE_LABEL[t.type] ?? t.type}
-          {n !== null && <span className="font-normal text-muted"> · {n} item{n === 1 ? "" : "s"}</span>}
+          {summary && <span className="font-normal text-muted"> · {summary}</span>}
         </p>
         <p className="truncate text-xs text-muted">
           {owner(t)} · <span className="font-mono">{t.scope}</span>
