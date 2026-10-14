@@ -1,0 +1,88 @@
+{
+  "schema_version": "2.0",
+  "doc_type": "episode",
+  "story_id": "rooftop-test",
+  "series": {
+    "episode_number": 1,
+    "episode_title_short": "Minimal Test"
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2,
+      "remotion": {
+        "template": "title_card",
+        "props": { "title": "DAY 1", "background": "dark" }
+      }
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "narration": "You are on the roof of your tower. The wind is loud, and the city below is quiet.",
+      "tts_text": "You are on the roof of your tower. [short pause] The wind is loud, and the city below is quiet.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "clear",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1, "weather": "clear" },
+        "characters_present": [
+          { "character_id": "protagonist", "pose_or_action": "standing alone, looking at the skyline", "position_in_frame": "center" }
+        ],
+        "include_channel_cameo": true
+      },
+      "image": {
+        "prompt": "Empty streets far below, dusk light",
+        "focal_points": [{ "label": "protagonist", "x": 0.5, "y": 0.55 }]
+      },
+      "sfx": [
+        {
+          "id": "seg_002_sfx_1",
+          "search_query": "wind howling rooftop",
+          "alt_queries": ["strong wind loop"],
+          "exclude_tags": ["music", "voice"],
+          "placement": "whole_segment",
+          "loop": true,
+          "fade_in_ms": 300,
+          "fade_out_ms": 500
+        }
+      ]
+    },
+    {
+      "id": "seg_003",
+      "order": 3,
+      "type": "infographic",
+      "narration": "You count what you have left.",
+      "remotion": {
+        "template": "supplies_card",
+        "props": {
+          "title": "SUPPLIES",
+          "subtitle": "DAY 1",
+          "background": "cream",
+          "items": [
+            { "label": "Water", "value": "5,000 gal", "icon": "water_jug", "icon_count": 5, "icon_total": 5 },
+            { "label": "Food", "value": "2 days", "icon": "can", "icon_count": 1, "icon_total": 5 }
+          ]
+        }
+      }
+    }
+  ],
+  "thumbnail": {
+    "image_prompt": "Close-up of the protagonist looking worried, orange and blue gradient sky",
+    "scene": { "location_id": "rooftop", "state_id": "clear", "camera_angle_id": "b", "world_state": { "day": 1, "weather": "clear" } },
+    "characters_present": ["protagonist"],
+    "text_layers": [
+      { "text": "DAY 1", "style": "impact_white_black_outline", "position": "top_center", "max_font_size_px": 220 }
+    ]
+  },
+  "youtube": {
+    "title": "Rooftop Test: Minimal",
+    "description": "A three-segment smoke test.\n\n{{chapters}}\n\n{{sfx_credits}}",
+    "tags": ["story", "animation"],
+    "visibility": "private"
+  }
+}

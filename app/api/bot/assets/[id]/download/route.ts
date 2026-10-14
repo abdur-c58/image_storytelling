@@ -15,9 +15,9 @@ export const GET = handle(async (request: Request, ctx: { params: Promise<{ id: 
   const db = await getDb();
   const [asset] = await db.select().from(assets).where(eq(assets.id, id));
   if (!asset || asset.status !== "ready") throw new HttpError(404, "Asset not found or no longer current.");
-  const [project] = await db.select().from(projects).where(eq(projects.id, asset.projectId));
+  const [project] = asset.projectId ? await db.select().from(projects).where(eq(projects.id, asset.projectId)) : [];
   const ep = project?.episode as Episode | undefined;
-  const stem = ep ? `${ep.series.series_id}-ep${ep.series.episode_number}` : asset.projectId;
+  const stem = ep ? `${ep.series.series_id}-ep${ep.series.episode_number}` : (asset.projectId ?? asset.storyId ?? "asset");
   const ext = asset.storageKey.split(".").pop();
   const name = asset.kind === "video" ? `${stem}.${ext}` : `${stem}-${asset.assetKey.replace(/\//g, "-")}.${ext}`;
   const url = await presignAssetGet(asset, baseUrl(request), name);

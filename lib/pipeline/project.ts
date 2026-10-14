@@ -2,7 +2,7 @@ import "server-only";
 import { newId } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
 import { projects, segments } from "@/lib/db/schema";
-import { buildSegmentImageItem, segmentNeedsGeneratedImage } from "@/lib/episode/prompt";
+import { buildImageItems } from "@/lib/episode/prompt";
 import type { ValidationResult } from "@/lib/episode/validate";
 import { logEvent } from "@/lib/queue";
 import { advance } from "./advance";
@@ -15,6 +15,8 @@ export async function createProject(db: Db, rawJson: string, validation: Validat
   const autoStart = ep.automation.auto_start_on_submit;
   await db.insert(projects).values({
     id,
+    storyId: ep.story?.story_id ?? null,
+    cropSeed: newId("crop"),
     seriesId: ep.series.series_id,
     episodeNumber: ep.series.episode_number,
     title: ep.youtube.title,
@@ -24,9 +26,11 @@ export async function createProject(db: Db, rawJson: string, validation: Validat
     rawJson,
     estimate: validation.estimate ?? {},
     warnings: validation.warnings,
+    outputs: validation.continuity ? { story_state_end: validation.continuity.end } : {},
   });
+  const items = new Map(buildImageItems(ep).map((i) => [i.segment_id, i]));
   const rows = orderedSegments(ep).map((seg) => {
-    const item = segmentNeedsGeneratedImage(seg) ? buildSegmentImageItem(ep, seg) : null;
+    const item = items.get(seg.id) ?? null;
     return {
       projectId: id,
       segmentId: seg.id,
@@ -35,6 +39,8 @@ export async function createProject(db: Db, rawJson: string, validation: Validat
       narration: seg.silent ? "" : seg.narration,
       finalPrompt: item?.final_prompt ?? null,
       negativePrompt: item?.negative_prompt ?? null,
+      promptParts: item?.prompt_parts ?? [],
+      masterKeys: item?.master_keys ?? [],
     };
   });
   if (rows.length) await db.insert(segments).values(rows);

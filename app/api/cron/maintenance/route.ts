@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { assets, projects } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { handle, HttpError, json } from "@/lib/http";
-import { advance } from "@/lib/pipeline/advance";
+import { advanceOwner } from "@/lib/agent-api";
 import { reapExpired } from "@/lib/queue";
 import { getStorage } from "@/lib/storage";
 
@@ -17,7 +17,7 @@ export const GET = handle(async (request: Request) => {
   if (!env.cronSecret || !safeEqual(header, `Bearer ${env.cronSecret}`)) throw new HttpError(401, "Unauthorized.");
   const db = await getDb();
   const touched = await reapExpired(db);
-  for (const id of touched) await advance(db, id);
+  for (const owner of touched) await advanceOwner(db, owner);
 
   const cutoff = new Date(Date.now() - env.retentionDays * 24 * 3600 * 1000);
   const finished = await db

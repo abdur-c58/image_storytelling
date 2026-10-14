@@ -17,10 +17,57 @@ import {
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
+/** One per story bible (schema 2.0). Episodes (projects) point at it. */
+export const stories = pgTable("stories", {
+  /** The bible's story_id. */
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  /** STORY_VALIDATED | LOCATION_MASTERS_REQUESTED | MASTERS_REVIEW | MASTERS_APPROVED */
+  state: text("state").notNull(),
+  stateDetail: text("state_detail").notNull().default(""),
+  /** Parsed story bible (defaults applied). */
+  bible: jsonb("bible").notNull(),
+  rawJson: text("raw_json").notNull(),
+  /** { current, by_episode, committed_through_episode } — see lib/episode/continuity.ts */
+  storyState: jsonb("story_state").notNull(),
+  warnings: jsonb("warnings").notNull().default(sql`'[]'::jsonb`),
+  archived: boolean("archived").notNull().default(false),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}).enableRLS();
+
+/** Location plates and character sheets a story's images are anchored to. */
+export const storyMasters = pgTable(
+  "story_masters",
+  {
+    storyId: text("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    /** loc/<location>/<state>/<angle> or char/<character>/<outfit> */
+    masterKey: text("master_key").notNull(),
+    kind: text("kind").notNull(),
+    label: text("label").notNull().default(""),
+    prompt: text("prompt").notNull(),
+    negativePrompt: text("negative_prompt").notNull().default(""),
+    promptParts: jsonb("prompt_parts").notNull().default(sql`'[]'::jsonb`),
+    mustMatch: jsonb("must_match").notNull().default(sql`'[]'::jsonb`),
+    /** missing | requested | generated | approved */
+    status: text("status").notNull().default("missing"),
+    approvedAssetId: text("approved_asset_id"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.storyId, t.masterKey] })],
+).enableRLS();
+
 export const projects = pgTable(
   "projects",
   {
     id: text("id").primaryKey(),
+    storyId: text("story_id").references(() => stories.id, { onDelete: "set null" }),
+    /** Seed for the crop engine; changed by "re-roll all". */
+    cropSeed: text("crop_seed").notNull().default(""),
     seriesId: text("series_id").notNull(),
     episodeNumber: integer("episode_number").notNull(),
     title: text("title").notNull(),
@@ -58,7 +105,17 @@ export const segments = pgTable(
     narration: text("narration").notNull().default(""),
     finalPrompt: text("final_prompt"),
     negativePrompt: text("negative_prompt"),
+    /** Labelled pieces of final_prompt, for the prompt inspector. */
+    promptParts: jsonb("prompt_parts").notNull().default(sql`'[]'::jsonb`),
+    /** Story masters this segment's image is anchored to. */
+    masterKeys: jsonb("master_keys").notNull().default(sql`'[]'::jsonb`),
     imageAttempts: integer("image_attempts").notNull().default(0),
+    /** null follows the crop policy; true/false is the per-segment toggle. */
+    cropEnabled: boolean("crop_enabled"),
+    /** Bumped by "re-roll" for this segment. */
+    cropSalt: integer("crop_salt").notNull().default(0),
+    /** normal | split_and_silence (voice tag fallback) */
+    voiceMode: text("voice_mode").notNull().default("normal"),
     audioDurationSec: doublePrecision("audio_duration_sec"),
     startSec: doublePrecision("start_sec"),
     endSec: doublePrecision("end_sec"),
@@ -73,11 +130,11 @@ export const assets = pgTable(
   "assets",
   {
     id: text("id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Exactly one of projectId / storyId is set. */
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    storyId: text("story_id").references(() => stories.id, { onDelete: "cascade" }),
     taskId: text("task_id"),
-    /** Logical slot, e.g. image/seg_004, voice/seg_004, card/seg_010, sfx/seg_002_sfx_1, video/final. */
+    /** Logical slot, e.g. image/seg_004, voice/seg_004, card/seg_010, sfx/seg_002_sfx_1, video/final, master/loc/x/y/z. */
     assetKey: text("asset_key").notNull(),
     kind: text("kind").notNull(),
     storageKey: text("storage_key").notNull(),
@@ -92,19 +149,22 @@ export const assets = pgTable(
     meta: jsonb("meta").notNull().default(sql`'{}'::jsonb`),
     createdAt: createdAt(),
   },
-  (t) => [index("assets_project_key_idx").on(t.projectId, t.assetKey, t.status)],
+  (t) => [
+    index("assets_project_key_idx").on(t.projectId, t.assetKey, t.status),
+    index("assets_story_key_idx").on(t.storyId, t.assetKey, t.status),
+  ],
 ).enableRLS();
 
 export const tasks = pgTable(
   "tasks",
   {
     id: text("id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Exactly one of projectId / storyId is set (story tasks: generate_location_master). */
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    storyId: text("story_id").references(() => stories.id, { onDelete: "cascade" }),
     /** bot | worker */
     kind: text("kind").notNull(),
-    /** generate_images | upload_youtube | voice | align | sfx | cards | thumbnail_compose | mix | render */
+    /** generate_images | generate_location_master | upload_youtube | voice | align | sfx | cards | thumbnail_compose | mix | render */
     type: text("type").notNull(),
     /** Distinguishes several tasks of one type (image batches, single-segment redo). */
     scope: text("scope").notNull().default("all"),
@@ -132,6 +192,7 @@ export const tasks = pgTable(
   (t) => [
     index("tasks_queue_idx").on(t.kind, t.status, t.availableAt),
     index("tasks_project_idx").on(t.projectId, t.type, t.scope),
+    index("tasks_story_idx").on(t.storyId, t.type, t.scope),
   ],
 ).enableRLS();
 
@@ -139,16 +200,18 @@ export const taskEvents = pgTable(
   "task_events",
   {
     id: serial("id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    storyId: text("story_id").references(() => stories.id, { onDelete: "cascade" }),
     taskId: text("task_id"),
     level: text("level").notNull().default("info"),
     message: text("message").notNull(),
     data: jsonb("data"),
     createdAt: createdAt(),
   },
-  (t) => [index("task_events_project_idx").on(t.projectId, t.createdAt)],
+  (t) => [
+    index("task_events_project_idx").on(t.projectId, t.createdAt),
+    index("task_events_story_idx").on(t.storyId, t.createdAt),
+  ],
 ).enableRLS();
 
 /** One row per SFX cue: the ranked candidates and which one is in use. */
@@ -229,6 +292,8 @@ export const usageEvents = pgTable(
   (t) => [index("usage_provider_idx").on(t.provider, t.createdAt)],
 ).enableRLS();
 
+export type StoryRow = typeof stories.$inferSelect;
+export type StoryMasterRow = typeof storyMasters.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type SegmentRow = typeof segments.$inferSelect;
 export type AssetRow = typeof assets.$inferSelect;

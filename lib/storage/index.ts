@@ -39,6 +39,17 @@ export function projectObjectKey(projectId: string, name: string): string {
   return `${env.storagePrefix}projects/${projectId}/${safe}`;
 }
 
+/** Story-level files (location masters, character sheets) live beside the projects. */
+export function storyObjectKey(storyId: string, name: string): string {
+  const safe = name.replace(/[^a-zA-Z0-9._/-]/g, "_").replace(/\.\.+/g, ".");
+  return `${storyObjectPrefix(storyId)}${safe}`;
+}
+
+export function storyObjectPrefix(storyId: string): string {
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(storyId)) throw new Error("Invalid story id.");
+  return `${env.storagePrefix}stories/${storyId}/`;
+}
+
 /** Folder holding every object of one project. Refuses ids that could widen the prefix. */
 export function projectObjectPrefix(projectId: string): string {
   if (!/^prj_[A-Za-z0-9_-]+$/.test(projectId)) throw new Error("Invalid project id.");

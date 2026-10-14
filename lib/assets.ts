@@ -1,10 +1,11 @@
 import "server-only";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
 import { newId, signToken, verifyToken } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
 import { assets, type AssetRow } from "@/lib/db/schema";
 import { env } from "@/lib/env";
-import { getStorage, projectObjectKey } from "@/lib/storage";
+import type { Owner } from "@/lib/queue";
+import { getStorage, projectObjectKey, storyObjectKey } from "@/lib/storage";
 
 export const EXTENSIONS: Record<string, string> = {
   "image/png": "png",
@@ -25,8 +26,7 @@ export function kindForKey(assetKey: string): string {
   return assetKey.split("/")[0] ?? "other";
 }
 
-export interface NewAsset {
-  projectId: string;
+export interface NewAsset extends Owner {
   taskId: string | null;
   assetKey: string;
   contentType: string;
@@ -39,15 +39,24 @@ export interface NewAsset {
   meta?: Record<string, unknown>;
 }
 
+function ownerFilter(o: Owner): SQL {
+  if (o.projectId) return eq(assets.projectId, o.projectId);
+  if (o.storyId) return eq(assets.storyId, o.storyId);
+  throw new Error("Asset owner missing.");
+}
+
 export async function createAsset(db: Db, input: NewAsset): Promise<AssetRow> {
+  if (!input.projectId === !input.storyId) throw new Error("An asset belongs to exactly one project or story.");
   const id = newId("ast");
   const ext = EXTENSIONS[input.contentType] ?? "bin";
-  const storageKey = projectObjectKey(input.projectId, `${input.assetKey}/${id}.${ext}`);
+  const name = `${input.assetKey}/${id}.${ext}`;
+  const storageKey = input.projectId ? projectObjectKey(input.projectId, name) : storyObjectKey(input.storyId!, name);
   const [row] = await db
     .insert(assets)
     .values({
       id,
-      projectId: input.projectId,
+      projectId: input.projectId ?? null,
+      storyId: input.storyId ?? null,
       taskId: input.taskId,
       assetKey: input.assetKey,
       kind: kindForKey(input.assetKey),
@@ -66,8 +75,12 @@ export async function createAsset(db: Db, input: NewAsset): Promise<AssetRow> {
   return row;
 }
 
-/** A newly ready asset replaces any earlier ready asset in the same slot. */
+/**
+ * A newly ready asset replaces any earlier ready asset in the same slot. Story masters keep every candidate
+ * (the approved one is chosen by id), so they are never superseded here.
+ */
 export async function supersedeOthers(db: Db, asset: AssetRow): Promise<void> {
+  if (!asset.projectId) return;
   await db
     .update(assets)
     .set({ status: "superseded" })
@@ -99,19 +112,25 @@ export async function readyAssets(db: Db, projectId: string): Promise<AssetRow[]
     .orderBy(desc(assets.createdAt));
 }
 
+export async function readyStoryAssets(db: Db, storyId: string): Promise<AssetRow[]> {
+  return db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.storyId, storyId), eq(assets.status, "ready")))
+    .orderBy(desc(assets.createdAt));
+}
+
 export async function readyAssetMap(db: Db, projectId: string): Promise<Map<string, AssetRow>> {
   const map = new Map<string, AssetRow>();
   for (const asset of await readyAssets(db, projectId)) if (!map.has(asset.assetKey)) map.set(asset.assetKey, asset);
   return map;
 }
 
-export async function findReadyBySha(db: Db, projectId: string, assetKey: string, sha256: string): Promise<AssetRow | null> {
+export async function findReadyBySha(db: Db, owner: Owner, assetKey: string, sha256: string): Promise<AssetRow | null> {
   const [row] = await db
     .select()
     .from(assets)
-    .where(
-      and(eq(assets.projectId, projectId), eq(assets.assetKey, assetKey), eq(assets.sha256, sha256), eq(assets.status, "ready")),
-    )
+    .where(and(ownerFilter(owner), eq(assets.assetKey, assetKey), eq(assets.sha256, sha256), eq(assets.status, "ready")))
     .limit(1);
   return row ?? null;
 }

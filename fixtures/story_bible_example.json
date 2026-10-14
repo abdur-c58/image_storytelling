@@ -1,0 +1,132 @@
+{
+  "schema_version": "2.0",
+  "doc_type": "story_bible",
+  "story_id": "rooftop-test",
+  "story_title": "Rooftop Test Story",
+  "total_episodes_planned": 3,
+  "channel": {
+    "channel_name": "Test Channel",
+    "recurring_cameo": {
+      "description": "a small orange cat with a white tail tip, sitting quietly",
+      "rule": "Somewhere in the frame, small and never the focus.",
+      "min_segments_per_episode": 1
+    }
+  },
+  "style_bible": {
+    "global_style_prompt": "Flat 2D cartoon illustration, thick clean outlines, muted colours, simple shapes, storybook style",
+    "negative_prompt": "photorealistic, 3d render, text, watermark",
+    "aspect_ratio": "16:9",
+    "target_resolution": "1920x1080",
+    "source_image_min_width": 2560,
+    "palette_notes": "Dusty blues and greys, one warm accent per scene."
+  },
+  "characters": [
+    {
+      "id": "protagonist",
+      "name": "You",
+      "role": "protagonist",
+      "visual_description": "a stick figure with a round white head and dot eyes",
+      "outfit_states": [
+        { "id": "beanie", "description": "a mustard yellow beanie and a grey scarf" },
+        { "id": "raincoat", "description": "a mustard yellow beanie under a dark green hooded raincoat" }
+      ],
+      "first_appears_episode": 1
+    },
+    {
+      "id": "mara",
+      "name": "Mara",
+      "role": "ally",
+      "visual_description": "a tall stick figure with a black ponytail and round glasses",
+      "outfit_states": [{ "id": "default", "description": "a red hoodie and a backpack" }],
+      "first_appears_episode": 2
+    }
+  ],
+  "scene_bible": {
+    "world_variables": [
+      {
+        "id": "day",
+        "type": "integer",
+        "initial": 1,
+        "prompt_template": "Day {value} of the outbreak",
+        "monotonic": "increasing",
+        "max_step_per_segment": 1
+      },
+      {
+        "id": "weather",
+        "type": "enum",
+        "initial": "clear",
+        "values": ["clear", "rain", "fog"],
+        "prompt_template": "Weather: {value}",
+        "applies_to_location_tags": ["outdoor"]
+      },
+      {
+        "id": "water_gallons",
+        "type": "integer",
+        "initial": 5000,
+        "monotonic": "decreasing"
+      }
+    ],
+    "locations": [
+      {
+        "id": "rooftop",
+        "name": "Tower rooftop",
+        "tags": ["outdoor"],
+        "anchor_description": "a flat concrete rooftop of a 30-storey tower with a low parapet, city skyline all around",
+        "fixed_landmarks": ["a round grey water tank on steel legs", "a small stairwell hut with a red metal door"],
+        "camera_angles": [
+          { "id": "a", "name": "From the stairwell door", "prompt": "wide shot from the stairwell door looking across the roof to the skyline" },
+          { "id": "b", "name": "At the parapet", "prompt": "medium shot along the parapet, the street far below on the right" }
+        ],
+        "states": [
+          { "id": "clear", "description": "open and empty, nothing blocking the stairwell door", "is_base": true },
+          { "id": "barricaded", "description": "the red stairwell door wedged shut with planks and a filing cabinet", "derived_from": "clear" }
+        ],
+        "key_props": [
+          { "id": "radio", "description": "a battered hand-crank radio", "default_position": "on the parapet ledge" }
+        ]
+      },
+      {
+        "id": "apartment",
+        "name": "Your apartment",
+        "tags": ["indoor"],
+        "anchor_description": "a small top-floor apartment with one big window, a grey sofa and a tiny kitchen corner",
+        "fixed_landmarks": ["the big window looking over the city", "a yellow fridge"],
+        "camera_angles": [
+          { "id": "a", "name": "From the door", "prompt": "wide shot from the front door, window on the far wall" },
+          { "id": "b", "name": "Kitchen corner", "prompt": "medium shot of the kitchen corner and the yellow fridge" }
+        ],
+        "states": [
+          { "id": "tidy", "description": "tidy, cushions on the sofa, cupboards closed", "is_base": true },
+          { "id": "ransacked", "description": "cupboards open and empty, cushions on the floor, cans scattered", "derived_from": "tidy" }
+        ],
+        "key_props": [
+          { "id": "cans", "description": "a short stack of tin cans", "default_position": "on the kitchen counter" }
+        ]
+      }
+    ]
+  },
+  "defaults": {
+    "voice": {
+      "voice_id": "",
+      "speed": 1,
+      "pause_between_sentences_ms": 350,
+      "pause_between_segments_ms": 450,
+      "tag_fallback_mode": "split_and_silence"
+    },
+    "audio": { "master_loudness_lufs": -14 },
+    "render": { "fps": 30 },
+    "crop_policy": {
+      "enabled": true,
+      "max_crop": 0.2,
+      "typical_max_crop": 0.1,
+      "min_crop": 0.04,
+      "prob_typical": 0.85,
+      "crop_measure": "linear",
+      "sentences_before_crop": { "2": 0.8, "1": 0.2 },
+      "min_hold_sec": 1.5
+    }
+  },
+  "automation": {
+    "approval_gates": { "location_masters": true }
+  }
+}

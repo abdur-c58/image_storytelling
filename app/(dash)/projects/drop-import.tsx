@@ -4,8 +4,8 @@ import { FileJson, Loader2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { importEpisodeAction, type ImportMode } from "@/app/actions";
-import { validateEpisodeText } from "@/lib/episode/validate";
+import { importEpisodeAction, validateDocumentAction, type ImportMode } from "@/app/actions";
+import { detectDocType, parseJsonText, type DocType } from "@/lib/episode/validate";
 
 export interface ExistingProject {
   id: string;
@@ -17,6 +17,8 @@ export interface ExistingProject {
 interface DroppedFile {
   fileName: string;
   text: string;
+  docType: DocType | null;
+  storyId: string | null;
   ok: boolean;
   error: string | null;
   title: string;
@@ -30,8 +32,11 @@ interface DroppedFile {
 interface Outcome {
   fileName: string;
   id: string | null;
+  storyId: string | null;
   error: string | null;
 }
+
+const DOC_ORDER: Record<DocType, number> = { story_bible: 0, bundle: 1, episode: 2 };
 
 export const DRAFT_KEY = "slideshow:draft";
 
@@ -53,26 +58,44 @@ function describeWritten(text: string): string {
   }
 }
 
+/**
+ * Validates on the server so episodes see their stored story. Story bibles sort first so an episode dropped
+ * together with its story bible validates once the bible is saved (the import revalidates each file).
+ */
 async function readFiles(files: File[]): Promise<DroppedFile[]> {
-  return Promise.all(
-    files.map(async (file) => {
-      const text = await file.text();
-      const result = validateEpisodeText(text);
+  const texts = await Promise.all(files.map(async (file) => ({ fileName: file.name, text: await file.text() })));
+  const typed = texts.map((f) => {
+    const { raw, errors } = parseJsonText(f.text);
+    return { ...f, detected: errors.length ? null : detectDocType(raw) };
+  });
+  const storiesInDrop = new Set(
+    typed.filter((f) => f.detected?.doc_type === "story_bible" || f.detected?.doc_type === "bundle").map((f) => f.detected!.story_id),
+  );
+  const out = await Promise.all(
+    typed.map(async ({ fileName, text, detected }): Promise<DroppedFile> => {
+      const result = await validateDocumentAction(text);
       const ep = result.episode;
+      const deferred = !!result.needs_story && storiesInDrop.has(result.needs_story);
+      const ok = result.ok || deferred;
       const first = result.errors[0];
       return {
-        fileName: file.name,
+        fileName,
         text,
-        ok: result.ok,
-        error: result.ok ? null : `${result.errors.length} error(s), first: ${first?.message ?? "invalid"}${first?.line ? ` (line ${first.line})` : ""}`,
-        title: ep?.youtube.title ?? file.name,
+        docType: result.doc_type,
+        storyId: detected?.story_id ?? null,
+        ok,
+        error: ok ? null : `${result.errors.length} error(s), first: ${first?.message ?? "invalid"}${first?.line ? ` (line ${first.line})` : ""}`,
+        title: ep?.youtube.title ?? result.story?.story_title ?? fileName,
         seriesId: ep?.series.series_id ?? "",
         episodeNumber: ep?.series.episode_number ?? 0,
         segments: ep?.segments.length ?? 0,
         minutes: result.estimate ? result.estimate.total_seconds / 60 : null,
-        writtenMode: describeWritten(text),
+        writtenMode: result.doc_type === "story_bible" ? "" : describeWritten(text),
       };
     }),
+  );
+  return out.sort(
+    (a, b) => (a.docType ? DOC_ORDER[a.docType] : 3) - (b.docType ? DOC_ORDER[b.docType] : 3) || a.episodeNumber - b.episodeNumber,
   );
 }
 
@@ -111,21 +134,20 @@ export function DropImport({ existing, children }: { existing: ExistingProject[]
     if (!pending) return;
     const valid = pending.filter((f) => f.ok);
     setBusy({ done: 0, total: valid.length });
-    const results: Outcome[] = pending.filter((f) => !f.ok).map((f) => ({ fileName: f.fileName, id: null, error: f.error }));
+    const results: Outcome[] = pending.filter((f) => !f.ok).map((f) => ({ fileName: f.fileName, id: null, storyId: null, error: f.error }));
     for (const [i, f] of valid.entries()) {
       try {
         const res = await importEpisodeAction(f.text, mode, replace);
-        results.push({ fileName: f.fileName, id: res.id, error: res.error });
+        results.push({ fileName: f.fileName, id: res.id, storyId: res.storyId, error: res.error });
       } catch (err) {
-        results.push({ fileName: f.fileName, id: null, error: err instanceof Error ? err.message : "Import failed." });
+        results.push({ fileName: f.fileName, id: null, storyId: null, error: err instanceof Error ? err.message : "Import failed." });
       }
       setBusy({ done: i + 1, total: valid.length });
     }
     setBusy(null);
     setPending(null);
-    const created = results.filter((r) => r.id);
-    if (created.length === 1 && results.length === 1) {
-      router.push(`/projects/${created[0].id}`);
+    if (results.length === 1 && !results[0].error) {
+      router.push(results[0].id ? `/projects/${results[0].id}` : `/stories/${results[0].storyId}`);
       return;
     }
     setOutcomes(results);
@@ -204,6 +226,10 @@ export function DropImport({ existing, children }: { existing: ExistingProject[]
                 <Link href={`/projects/${o.id}`} className="link">
                   created
                 </Link>
+              ) : o.storyId && !o.error ? (
+                <Link href={`/stories/${o.storyId}`} className="link">
+                  story saved
+                </Link>
               ) : (
                 o.error
               )}
@@ -243,8 +269,11 @@ export function DropImport({ existing, children }: { existing: ExistingProject[]
                 <li key={f.fileName} className="flex items-start justify-between gap-3 rounded-xl border border-line px-3 py-2 text-sm">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{f.ok ? f.title : f.fileName}</p>
-                    {f.ok ? (
+                    {f.ok && f.docType === "story_bible" ? (
+                      <p className="text-xs font-light text-muted">story bible · {f.storyId}</p>
+                    ) : f.ok ? (
                       <p className="text-xs font-light text-muted">
+                        {f.docType === "bundle" ? "story + " : ""}
                         {f.seriesId} · episode {f.episodeNumber} · {f.segments} segments
                         {f.minutes ? ` · ~${f.minutes.toFixed(1)} min` : ""}
                         {f.writtenMode ? ` · file says: ${f.writtenMode}` : ""}

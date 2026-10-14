@@ -1,0 +1,226 @@
+{
+  "schema_version": "2.0",
+  "doc_type": "episode",
+  "story_id": "rooftop-test",
+  "series": {
+    "episode_number": 1,
+    "episode_title_short": "The Roof",
+    "recap_of_previous": "",
+    "cliffhanger": "Someone knocks on the barricaded door.",
+    "next_episode_teaser": "Who is on the stairs?",
+    "state_carryover": { "notes": "Rooftop barricaded, raining, protagonist in raincoat." }
+  },
+  "overrides": {
+    "voice": { "style_notes": "calm, low, unhurried" },
+    "crop_policy": { "min_hold_sec": 1.2 }
+  },
+  "bible_additions": {
+    "camera_angles": [
+      { "location_id": "rooftop", "angle": { "id": "c", "name": "Overhead", "prompt": "high overhead shot looking straight down at the roof" } }
+    ],
+    "key_props": [
+      { "location_id": "rooftop", "prop": { "id": "rain_barrel", "description": "a blue plastic rain barrel", "default_position": "next to the water tank" } }
+    ],
+    "outfit_states": [
+      { "character_id": "protagonist", "outfit": { "id": "bandaged", "description": "the green raincoat with a white bandage around the left hand" } }
+    ]
+  },
+  "segments": [
+    {
+      "id": "seg_001",
+      "order": 1,
+      "type": "title_card",
+      "narration": "",
+      "silent": true,
+      "min_duration_sec": 2,
+      "remotion": { "template": "title_card", "props": { "title": "DAY 1", "subtitle": "THE ROOF", "background": "dark" } }
+    },
+    {
+      "id": "seg_002",
+      "order": 2,
+      "type": "illustration",
+      "narration": "The morning the city went quiet, you climbed to the roof.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "clear",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1, "weather": "clear" },
+        "characters_present": [
+          { "character_id": "protagonist", "outfit_state_id": "beanie", "pose_or_action": "stepping out of the stairwell door", "position_in_frame": "left" }
+        ],
+        "include_channel_cameo": true
+      },
+      "image": {
+        "prompt": "Early morning, long shadows, empty sky",
+        "focal_points": [{ "label": "door", "x": 0.25, "y": 0.55 }]
+      },
+      "sfx": [
+        { "id": "seg_002_sfx_1", "search_query": "metal door creak open", "placement": "segment_start", "fade_out_ms": 200 }
+      ]
+    },
+    {
+      "id": "seg_003",
+      "order": 3,
+      "type": "illustration",
+      "narration": "From up here, the streets looked like a model town. Nothing moved at all.",
+      "tts_text": "[breath] From up here, the streets looked like a model town. [long pause] Nothing moved at all.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "clear",
+        "camera_angle_id": "b",
+        "world_state": { "day": 1, "weather": "clear" },
+        "characters_present": [
+          { "character_id": "protagonist", "pose_or_action": "leaning on the parapet, looking down", "position_in_frame": "right" }
+        ],
+        "props_in_frame": ["radio"]
+      },
+      "image": {
+        "prompt": "Tiny abandoned cars in the street far below",
+        "focal_points": [
+          { "label": "protagonist", "x": 0.7, "y": 0.5 },
+          { "label": "street", "x": 0.85, "y": 0.8 }
+        ]
+      }
+    },
+    {
+      "id": "seg_004",
+      "order": 4,
+      "type": "illustration",
+      "narration": "Back inside, the apartment looked the same as always. The sofa, the window, the yellow fridge. It felt like a normal Tuesday.",
+      "scene": {
+        "location_id": "apartment",
+        "state_id": "tidy",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1 },
+        "characters_present": [
+          { "character_id": "protagonist", "pose_or_action": "standing in the doorway", "position_in_frame": "center" }
+        ]
+      },
+      "image": { "prompt": "Soft daylight through the big window" }
+    },
+    {
+      "id": "seg_005",
+      "order": 5,
+      "type": "infographic",
+      "narration": "You took stock of what you had.",
+      "remotion": {
+        "template": "supplies_card",
+        "props": {
+          "title": "SUPPLIES",
+          "subtitle": "DAY 1",
+          "background": "cream",
+          "items": [
+            { "label": "Water", "value": "5,000 gal", "icon": "water_jug", "icon_count": 5, "icon_total": 5 },
+            { "label": "Food", "value": "2 days", "icon": "can", "icon_count": 1, "icon_total": 5 }
+          ]
+        }
+      }
+    },
+    {
+      "id": "seg_006",
+      "order": 6,
+      "type": "illustration",
+      "narration": "It was not enough. You opened every cupboard. You checked behind the fridge. You emptied every drawer onto the floor. In the end you found three cans of beans. That was all.",
+      "tts_text": "It was not enough. [pause] You opened every cupboard. You checked behind the fridge. You emptied every drawer onto the floor. In the end you found <emphasis>three cans of beans</emphasis>. [sigh] <whisper>That was all.</whisper>",
+      "scene": {
+        "location_id": "apartment",
+        "state_id": "ransacked",
+        "camera_angle_id": "b",
+        "world_state": { "day": 1, "water_gallons": 4990 },
+        "characters_present": [
+          { "character_id": "protagonist", "pose_or_action": "kneeling among scattered cans", "position_in_frame": "center" }
+        ],
+        "props_in_frame": ["cans"],
+        "state_changes": [
+          { "location_id": "apartment", "from_state_id": "tidy", "to_state_id": "ransacked", "cause": "You searched every cupboard for food.", "persist": true }
+        ]
+      },
+      "image": {
+        "prompt": "Three tin cans held up in one hand",
+        "focal_points": [{ "label": "cans", "x": 0.55, "y": 0.6 }]
+      },
+      "sfx": [
+        { "id": "seg_006_sfx_1", "search_query": "cupboard doors opening", "placement": "at_phrase", "at_phrase": "opened every cupboard" }
+      ]
+    },
+    {
+      "id": "seg_007",
+      "order": 7,
+      "type": "reuse_image",
+      "narration": "You remembered how the place looked this morning. It seemed like a long time ago.",
+      "image": { "reuse_from_segment_id": "seg_004" }
+    },
+    {
+      "id": "seg_008",
+      "order": 8,
+      "type": "illustration",
+      "narration": "That afternoon, the rain came. You dragged a filing cabinet up the stairs. You wedged the door shut.",
+      "tts_text": "That afternoon, the rain came. [short pause] You dragged a filing cabinet up the stairs. [breath] You wedged the door shut.",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "barricaded",
+        "camera_angle_id": "c",
+        "world_state": { "day": 1, "weather": "rain" },
+        "characters_present": [
+          { "character_id": "protagonist", "outfit_state_id": "raincoat", "pose_or_action": "pushing a filing cabinet against the door", "position_in_frame": "left" }
+        ],
+        "props_in_frame": ["rain_barrel"],
+        "state_changes": [
+          { "location_id": "rooftop", "from_state_id": "clear", "to_state_id": "barricaded", "cause": "You barricaded the stairwell door.", "persist": true }
+        ]
+      },
+      "image": { "prompt": "Heavy rain streaks, puddles forming on the concrete" },
+      "transition_out": "fade_black"
+    },
+    {
+      "id": "seg_009",
+      "order": 9,
+      "type": "illustration",
+      "narration": "Then, through the rain, you heard it. Three slow knocks on the door.",
+      "tts_text": "Then, through the rain, you heard it. [long pause] <slow>Three slow knocks on the door.</slow>",
+      "scene": {
+        "location_id": "rooftop",
+        "state_id": "barricaded",
+        "camera_angle_id": "a",
+        "world_state": { "day": 1, "weather": "rain" },
+        "characters_present": [
+          { "character_id": "protagonist", "outfit_state_id": "bandaged", "pose_or_action": "frozen, staring at the door", "position_in_frame": "right" },
+          { "character_id": "mara", "pose_or_action": "a blurred silhouette behind the door's small window", "position_in_frame": "background", "cameo": true }
+        ]
+      },
+      "image": {
+        "prompt": "The barricaded red door, rain bouncing off the planks",
+        "focal_points": [{ "label": "door", "x": 0.3, "y": 0.5 }]
+      },
+      "sfx": [
+        { "id": "seg_009_sfx_1", "search_query": "three knocks on metal door", "placement": "at_phrase", "at_phrase": "three slow knocks" }
+      ]
+    },
+    {
+      "id": "seg_010",
+      "order": 10,
+      "type": "title_card",
+      "narration": "To be continued.",
+      "remotion": { "template": "title_card", "props": { "title": "TO BE CONTINUED", "background": "dark" } }
+    }
+  ],
+  "thumbnail": {
+    "image_prompt": "The protagonist pressed against the barricaded door in the rain, wide frightened eyes",
+    "scene": { "location_id": "rooftop", "state_id": "barricaded", "camera_angle_id": "a", "world_state": { "day": 1, "weather": "rain" } },
+    "characters_present": ["protagonist"],
+    "text_layers": [
+      { "text": "WHO IS THERE?", "style": "impact_white_black_outline", "position": "top_center" }
+    ]
+  },
+  "youtube": {
+    "title": "Rooftop Test: The Roof (Full Example)",
+    "description": "Day one on the roof.\n\n{{chapters}}\n\n{{sfx_credits}}",
+    "tags": ["story", "animation", "survival"],
+    "visibility": "private"
+  },
+  "chapters": [
+    { "segment_id": "seg_001", "title": "The roof" },
+    { "segment_id": "seg_004", "title": "Supplies" },
+    { "segment_id": "seg_008", "title": "The rain" }
+  ]
+}

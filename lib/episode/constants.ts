@@ -1,6 +1,40 @@
-export const SCHEMA_VERSION = "1.0";
+export const SCHEMA_VERSION = "2.0";
+export const DOC_TYPES = ["story_bible", "episode", "bundle"] as const;
 
 export const SEGMENT_TYPES = ["illustration", "title_card", "infographic", "reuse_image"] as const;
+export const CHARACTER_ROLES = ["protagonist", "ally", "antagonist", "cameo", "extra"] as const;
+export const FRAME_POSITIONS = ["left", "center", "right", "background"] as const;
+export const WORLD_VARIABLE_TYPES = ["integer", "number", "string", "enum"] as const;
+export const CROP_MEASURES = ["linear", "area"] as const;
+export const CROP_TRANSITIONS = ["ease", "cut"] as const;
+export const EASINGS = ["linear", "easeInOutCubic", "easeInOutSine", "easeOutCubic"] as const;
+export const TAG_FALLBACK_MODES = ["split_and_silence", "none"] as const;
+
+/**
+ * Fish Audio Drama 3 (docs checked 2026-10-14): square-bracket cues are free-form directions; these are the
+ * documented sounds and pauses. Word-scoped delivery uses the paired angle tags below.
+ */
+export const DEFAULT_TAG_WHITELIST = [
+  "short pause",
+  "pause",
+  "long pause",
+  "break",
+  "long-break",
+  "breath",
+  "sigh",
+  "laugh",
+  "shaky breath",
+] as const;
+export const DEFAULT_PAIRED_TAGS = ["whisper", "emphasis", "soft", "fast", "slow", "stress", "forceful"] as const;
+export const DEFAULT_PAUSE_DURATIONS_MS: Record<string, number> = {
+  "short pause": 400,
+  pause: 700,
+  "long pause": 1200,
+  break: 400,
+  "long-break": 1200,
+};
+/** The hard cap on crop amount, whatever a policy says. */
+export const CROP_HARD_CAP = 0.2;
 export const REMOTION_TEMPLATES = [
   "title_card",
   "supplies_card",
@@ -10,7 +44,6 @@ export const REMOTION_TEMPLATES = [
   "custom",
 ] as const;
 export const SFX_PLACEMENTS = ["segment_start", "segment_end", "at_phrase", "whole_segment"] as const;
-export const MOTIONS = ["none", "slow_zoom_in", "slow_zoom_out", "pan_left", "pan_right"] as const;
 export const TRANSITIONS = ["cut", "crossfade_150ms", "fade_black"] as const;
 export const CARD_BACKGROUNDS = ["dark", "cream", "image"] as const;
 export const SHOT_TYPES = ["wide", "medium", "close-up", "top-down", "over-the-shoulder"] as const;
@@ -32,8 +65,8 @@ export const THUMBNAIL_POSITIONS = [
   "bottom_center",
   "bottom_right",
 ] as const;
-export const PIPELINE_FIRE_STATES = ["VALIDATED", "IMAGES_RECEIVED", "RENDER_COMPLETE"] as const;
-export const BOT_TASK_TYPES = ["generate_images", "upload_youtube"] as const;
+export const PIPELINE_FIRE_STATES = ["VALIDATED", "IMAGES_RECEIVED", "RENDER_COMPLETE", "STORY_VALIDATED"] as const;
+export const BOT_TASK_TYPES = ["generate_images", "upload_youtube", "generate_location_master"] as const;
 
 /** YouTube category name -> category id (YouTube Data API v3, region-independent ids). */
 export const YOUTUBE_CATEGORIES: Record<string, number> = {

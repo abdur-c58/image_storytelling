@@ -4,14 +4,16 @@ import { z } from "zod";
 import { createAsset, findReadyBySha, markAssetReady } from "@/lib/assets";
 import { sha256Hex } from "@/lib/crypto";
 import { getDb, type Db } from "@/lib/db";
-import { assets, projects, type AssetRow, type TaskRow } from "@/lib/db/schema";
+import { assets, projects, stories, type AssetRow, type TaskRow } from "@/lib/db/schema";
 import type { ImageItem } from "@/lib/episode/prompt";
+import type { Episode, StoryBible } from "@/lib/episode/schema";
 import { env } from "@/lib/env";
 import { HttpError } from "@/lib/http";
 import { checkGeneratedImage, contentTypeForFormat } from "@/lib/images";
 import { advance } from "@/lib/pipeline/advance";
 import { finalizeWorkerAssets, onTaskCompleted } from "@/lib/pipeline/complete";
 import { hydrateTask } from "@/lib/pipeline/payloads";
+import { advanceStory } from "@/lib/pipeline/story";
 import {
   BOT_TASK_TYPES,
   completeTask,
@@ -19,9 +21,12 @@ import {
   getLeasedTask,
   heartbeatTask,
   leaseNext,
+  logEvent,
+  ownerOf,
   reapExpired,
   touchAgent,
   WORKER_TASK_TYPES,
+  type Owner,
   type Progress,
   type TaskKind,
 } from "@/lib/queue";
@@ -33,6 +38,7 @@ const MB = 1024 * 1024;
 const SLOT_RULES: { prefix: string; types: string[]; maxBytes: number }[] = [
   { prefix: "image/", types: ["image/png", "image/jpeg", "image/webp"], maxBytes: 25 * MB },
   { prefix: "thumbnail_base/", types: ["image/png", "image/jpeg", "image/webp"], maxBytes: 25 * MB },
+  { prefix: "master/", types: ["image/png", "image/jpeg", "image/webp"], maxBytes: 25 * MB },
   { prefix: "card/", types: ["image/png"], maxBytes: 25 * MB },
   { prefix: "thumbnail/", types: ["image/jpeg"], maxBytes: 2 * MB },
   { prefix: "voice/", types: ["audio/flac", "audio/wav", "audio/x-wav"], maxBytes: 200 * MB },
@@ -58,8 +64,10 @@ function slotRule(assetKey: string) {
   return SLOT_RULES.find((r) => assetKey.startsWith(r.prefix)) ?? null;
 }
 
+const BOT_IMAGE_TASKS = new Set(["generate_images", "generate_location_master"]);
+
 export function allowedKey(task: TaskRow, assetKey: string): boolean {
-  if (task.type === "generate_images") {
+  if (BOT_IMAGE_TASKS.has(task.type)) {
     return ((task.payload as { items?: ImageItem[] }).items ?? []).some((i) => i.asset_key === assetKey);
   }
   return (TYPE_PREFIXES[task.type] ?? []).some((p) => assetKey.startsWith(p));
@@ -88,8 +96,26 @@ async function requireLease(db: Db, kind: TaskKind, taskId: string, leaseId: str
   return task;
 }
 
+export async function advanceOwner(db: Db, owner: Owner) {
+  if (owner.projectId) await advance(db, owner.projectId);
+  else if (owner.storyId) await advanceStory(db, owner.storyId);
+}
+
 async function sweep(db: Db) {
-  for (const projectId of await reapExpired(db)) await advance(db, projectId);
+  for (const owner of await reapExpired(db)) await advanceOwner(db, owner);
+}
+
+/** Width below which an accepted image is flagged for upscaling (the worker upscales before render). */
+async function preferredMinWidth(db: Db, task: TaskRow): Promise<number> {
+  if (task.projectId) {
+    const [p] = await db.select({ episode: projects.episode }).from(projects).where(eq(projects.id, task.projectId));
+    return (p?.episode as Episode | undefined)?.style_bible?.source_image_min_width ?? 2560;
+  }
+  if (task.storyId) {
+    const [s] = await db.select({ bible: stories.bible }).from(stories).where(eq(stories.id, task.storyId));
+    return (s?.bible as StoryBible | undefined)?.style_bible.source_image_min_width ?? 2560;
+  }
+  return 2560;
 }
 
 export async function claimNext(kind: TaskKind, agentId: string, base: string, types?: string[], info?: Record<string, unknown>) {
@@ -101,13 +127,21 @@ export async function claimNext(kind: TaskKind, agentId: string, base: string, t
   if (!filter.length) return null;
   const task = await leaseNext(db, kind, agentId, kind === "bot" ? env.botLeaseSec : env.workerLeaseSec, filter);
   if (!task) return null;
-  const [project] = await db.select().from(projects).where(eq(projects.id, task.projectId));
-  await advance(db, task.projectId);
+  let title = "";
+  if (task.projectId) {
+    const [project] = await db.select().from(projects).where(eq(projects.id, task.projectId));
+    title = project?.title ?? "";
+  } else if (task.storyId) {
+    const [story] = await db.select().from(stories).where(eq(stories.id, task.storyId));
+    title = story?.title ?? "";
+  }
+  await advanceOwner(db, ownerOf(task));
   return {
     ...(await hydrateTask(db, task, base)),
     lease_seconds: kind === "bot" ? env.botLeaseSec : env.workerLeaseSec,
     heartbeat_every_seconds: Math.floor((kind === "bot" ? env.botLeaseSec : env.workerLeaseSec) / 3),
-    project_title: project?.title ?? "",
+    project_title: task.projectId ? title : "",
+    story_title: task.storyId ? title : "",
     dry_run: env.dryRun,
   };
 }
@@ -141,11 +175,11 @@ export async function registerUpload(kind: TaskKind, taskId: string, input: z.in
   const task = await requireLease(db, kind, taskId, input.lease_id);
   checkSlot(task, input.asset_key, input.content_type, input.size_bytes);
   if (input.sha256) {
-    const existing = await findReadyBySha(db, task.projectId, input.asset_key, input.sha256);
+    const existing = await findReadyBySha(db, ownerOf(task), input.asset_key, input.sha256);
     if (existing) return { asset_id: existing.id, already_present: true, upload_url: null };
   }
   const asset = await createAsset(db, {
-    projectId: task.projectId,
+    ...ownerOf(task),
     taskId: task.id,
     assetKey: input.asset_key,
     contentType: input.content_type,
@@ -172,7 +206,7 @@ export async function registerUpload(kind: TaskKind, taskId: string, input: z.in
 }
 
 /** QA an uploaded bot image and mark it ready, or reject it with a reason the bot can act on. */
-async function verifyBotImage(db: Db, asset: AssetRow): Promise<{ ok: boolean; reason: string | null; asset: AssetRow }> {
+async function verifyBotImage(db: Db, asset: AssetRow, task: TaskRow): Promise<{ ok: boolean; reason: string | null; asset: AssetRow }> {
   const storage = getStorage();
   const size = await storage.head(asset.storageKey);
   if (size === null) return { ok: false, reason: "File was never uploaded to the upload URL.", asset };
@@ -184,14 +218,33 @@ async function verifyBotImage(db: Db, asset: AssetRow): Promise<{ ok: boolean; r
     await db.update(assets).set({ status: "rejected", meta: { ...(asset.meta as object), rejected: check.reason } }).where(eq(assets.id, asset.id));
     return { ok: false, reason: check.reason, asset };
   }
+  const meta = await lowResMeta(db, task, asset, check.width ?? 0);
   const ready = await markAssetReady(db, asset, {
     sizeBytes: size,
     sha256: sha256Hex(bytes),
     width: check.width,
     height: check.height,
     contentType: contentTypeForFormat(check.format),
+    meta,
   });
   return { ok: true, reason: null, asset: ready };
+}
+
+async function lowResMeta(db: Db, task: TaskRow, asset: Pick<AssetRow, "assetKey" | "meta">, width: number) {
+  const min = await preferredMinWidth(db, task);
+  const meta = { ...((asset.meta as object) ?? {}) } as Record<string, unknown>;
+  if (width < min) {
+    meta.upscale_needed = true;
+    meta.preferred_min_width = min;
+    await logEvent(
+      db,
+      ownerOf(task),
+      task.id,
+      "warning",
+      `${asset.assetKey}: ${width}px wide, under the preferred ${min}px; it will be upscaled before rendering (crops look softer).`,
+    );
+  }
+  return meta;
 }
 
 export async function confirmBotUpload(taskId: string, leaseId: string, assetId: string) {
@@ -200,7 +253,7 @@ export async function confirmBotUpload(taskId: string, leaseId: string, assetId:
   const [asset] = await db.select().from(assets).where(and(eq(assets.id, assetId), eq(assets.taskId, task.id)));
   if (!asset) throw new HttpError(404, "Unknown asset for this task.");
   if (asset.status === "ready") return { asset_id: asset.id, accepted: true, reason: null };
-  const result = await verifyBotImage(db, asset);
+  const result = await verifyBotImage(db, asset, task);
   return { asset_id: asset.id, accepted: result.ok, reason: result.reason, width: result.asset.width, height: result.asset.height };
 }
 
@@ -214,11 +267,11 @@ export async function directBotUpload(taskId: string, leaseId: string, assetKey:
   const check = await checkGeneratedImage(bytes);
   if (!check.ok) return { asset_id: null, accepted: false, reason: check.reason };
   const sha = sha256Hex(bytes);
-  const existing = await findReadyBySha(db, task.projectId, assetKey, sha);
+  const existing = await findReadyBySha(db, ownerOf(task), assetKey, sha);
   if (existing) return { asset_id: existing.id, accepted: true, reason: null };
   const finalType = contentTypeForFormat(check.format);
   const asset = await createAsset(db, {
-    projectId: task.projectId,
+    ...ownerOf(task),
     taskId: task.id,
     assetKey,
     contentType: finalType,
@@ -229,7 +282,7 @@ export async function directBotUpload(taskId: string, leaseId: string, assetKey:
     height: check.height,
   });
   await getStorage().put(asset.storageKey, bytes, finalType);
-  await markAssetReady(db, asset);
+  await markAssetReady(db, asset, { meta: await lowResMeta(db, task, asset, check.width ?? 0) });
   return { asset_id: asset.id, accepted: true, reason: null, width: check.width, height: check.height };
 }
 
@@ -255,9 +308,9 @@ export async function complete(kind: TaskKind, agentId: string, taskId: string, 
   const task = await requireLease(db, kind, taskId, body.lease_id);
   const result = { ...body.result };
 
-  if (task.type === "generate_images") {
+  if (BOT_IMAGE_TASKS.has(task.type)) {
     const pending = await db.select().from(assets).where(and(eq(assets.taskId, task.id), eq(assets.status, "pending")));
-    for (const asset of pending) await verifyBotImage(db, asset);
+    for (const asset of pending) await verifyBotImage(db, asset, task);
     const status = await itemStatus(task);
     result.items = status;
     result.missing = status.filter((s) => !s.uploaded).map((s) => s.segment_id);
@@ -272,7 +325,7 @@ export async function complete(kind: TaskKind, agentId: string, taskId: string, 
     const error = await finalizeWorkerAssets(db, task, body.asset_ids);
     if (error) {
       await failTask(db, task.id, body.lease_id, error, true);
-      await advance(db, task.projectId);
+      await advanceOwner(db, ownerOf(task));
       throw new HttpError(422, error);
     }
   }
@@ -280,8 +333,8 @@ export async function complete(kind: TaskKind, agentId: string, taskId: string, 
   const done = await completeTask(db, task.id, body.lease_id, result);
   if (!done) throw new HttpError(409, "Lease lost while completing.", { code: "lease_lost" });
   await onTaskCompleted(db, task, result);
-  await advance(db, task.projectId);
-  return { ok: true, ...(task.type === "generate_images" ? { missing: result.missing } : {}) };
+  await advanceOwner(db, ownerOf(task));
+  return { ok: true, ...(BOT_IMAGE_TASKS.has(task.type) ? { missing: result.missing } : {}) };
 }
 
 export const FailSchema = z.object({
@@ -295,6 +348,6 @@ export async function fail(kind: TaskKind, agentId: string, taskId: string, body
   await touchAgent(db, agentId, kind);
   const task = await requireLease(db, kind, taskId, body.lease_id);
   const row = await failTask(db, task.id, body.lease_id, body.reason, body.retryable);
-  await advance(db, task.projectId);
+  await advanceOwner(db, ownerOf(task));
   return { ok: true, status: row?.status, available_at: row?.availableAt };
 }

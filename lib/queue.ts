@@ -6,7 +6,7 @@ import { agents, taskEvents, tasks, type TaskRow } from "@/lib/db/schema";
 
 export type TaskKind = "bot" | "worker";
 export const WORKER_TASK_TYPES = ["voice", "align", "sfx", "cards", "thumbnail_compose", "mix", "render"] as const;
-export const BOT_TASK_TYPES = ["generate_images", "upload_youtube"] as const;
+export const BOT_TASK_TYPES = ["generate_images", "upload_youtube", "generate_location_master"] as const;
 export type WorkerTaskType = (typeof WORKER_TASK_TYPES)[number];
 export type BotTaskType = (typeof BOT_TASK_TYPES)[number];
 export type TaskType = WorkerTaskType | BotTaskType;
@@ -14,8 +14,17 @@ export type TaskType = WorkerTaskType | BotTaskType;
 export const ACTIVE_STATUSES = ["queued", "leased"] as const;
 export const LIVE_STATUSES = ["queued", "leased", "done"] as const;
 
-export interface NewTask {
-  projectId: string;
+/** A task, event or asset belongs to an episode (project) or, for masters, to a story. */
+export interface Owner {
+  projectId?: string | null;
+  storyId?: string | null;
+}
+
+export function ownerOf(row: { projectId: string | null; storyId: string | null }): Owner {
+  return { projectId: row.projectId, storyId: row.storyId };
+}
+
+export interface NewTask extends Owner {
   kind: TaskKind;
   type: TaskType;
   scope?: string;
@@ -27,23 +36,29 @@ export interface NewTask {
   availableAt?: Date;
 }
 
+/** `owner` is a project id, or an Owner for story-level events. */
 export async function logEvent(
   db: Db,
-  projectId: string,
+  owner: string | Owner,
   taskId: string | null,
   level: "info" | "warning" | "error",
   message: string,
   data?: unknown,
 ): Promise<void> {
-  await db.insert(taskEvents).values({ projectId, taskId, level, message, data: data ?? null });
+  const o = typeof owner === "string" ? { projectId: owner } : owner;
+  await db
+    .insert(taskEvents)
+    .values({ projectId: o.projectId ?? null, storyId: o.storyId ?? null, taskId, level, message, data: data ?? null });
 }
 
 export async function createTask(db: Db, input: NewTask): Promise<TaskRow> {
+  if (!input.projectId === !input.storyId) throw new Error("A task belongs to exactly one project or story.");
   const [row] = await db
     .insert(tasks)
     .values({
       id: newId("tsk"),
-      projectId: input.projectId,
+      projectId: input.projectId ?? null,
+      storyId: input.storyId ?? null,
       kind: input.kind,
       type: input.type,
       scope: input.scope ?? "all",
@@ -56,7 +71,7 @@ export async function createTask(db: Db, input: NewTask): Promise<TaskRow> {
       availableAt: input.availableAt ?? new Date(),
     })
     .returning();
-  await logEvent(db, input.projectId, row.id, "info", `Queued ${input.kind} task ${input.type} (${row.scope}).`);
+  await logEvent(db, ownerOf(row), row.id, "info", `Queued ${input.kind} task ${input.type} (${row.scope}).`);
   return row;
 }
 
@@ -68,7 +83,7 @@ function backoffDelaySec(task: TaskRow): number {
  * Return abandoned work to the queue: leases that expired without a heartbeat, and
  * leased tasks that ran past their overall timeout. Exhausted tasks go to "dead".
  */
-export async function reapExpired(db: Db): Promise<string[]> {
+export async function reapExpired(db: Db): Promise<Owner[]> {
   const now = new Date();
   const expired = await db
     .select()
@@ -80,7 +95,7 @@ export async function reapExpired(db: Db): Promise<string[]> {
         AND first_leased_at + (timeout_minutes * interval '1 minute') < now()`,
   );
   const overdueIds = new Set(overdue.map((r) => r.id));
-  const touched: string[] = [];
+  const touched = new Map<string, Owner>();
   const candidates = [...expired];
   if (overdueIds.size) {
     const extra = await db.select().from(tasks).where(inArray(tasks.id, [...overdueIds]));
@@ -91,9 +106,9 @@ export async function reapExpired(db: Db): Promise<string[]> {
       ? `Timed out after ${task.timeoutMinutes} minutes.`
       : "Lease expired without a heartbeat.";
     await requeueOrKill(db, task, reason, true);
-    touched.push(task.projectId);
+    touched.set(`${task.projectId}|${task.storyId}`, ownerOf(task));
   }
-  return [...new Set(touched)];
+  return [...touched.values()];
 }
 
 async function requeueOrKill(db: Db, task: TaskRow, reason: string, retryable: boolean): Promise<TaskRow> {
@@ -115,7 +130,7 @@ async function requeueOrKill(db: Db, task: TaskRow, reason: string, retryable: b
     .returning();
   await logEvent(
     db,
-    task.projectId,
+    ownerOf(task),
     task.id,
     dead ? "error" : "warning",
     dead
@@ -151,7 +166,7 @@ export async function leaseNext(
   );
   if (!rows.length) return null;
   const [task] = await db.select().from(tasks).where(eq(tasks.id, rows[0].id));
-  await logEvent(db, task.projectId, task.id, "info", `Leased by ${agentId} (attempt ${task.attempts}/${task.maxAttempts}).`);
+  await logEvent(db, ownerOf(task), task.id, "info", `Leased by ${agentId} (attempt ${task.attempts}/${task.maxAttempts}).`);
   return task;
 }
 
@@ -188,7 +203,7 @@ export async function heartbeatTask(
     })
     .where(eq(tasks.id, taskId))
     .returning();
-  if (progress?.message) await logEvent(db, task.projectId, taskId, "info", progress.message);
+  if (progress?.message) await logEvent(db, ownerOf(task), taskId, "info", progress.message);
   return row;
 }
 
@@ -208,7 +223,7 @@ export async function completeTask(db: Db, taskId: string, leaseId: string, resu
     })
     .where(eq(tasks.id, taskId))
     .returning();
-  await logEvent(db, task.projectId, taskId, "info", `Task ${task.type} completed.`);
+  await logEvent(db, ownerOf(task), taskId, "info", `Task ${task.type} completed.`);
   return row;
 }
 

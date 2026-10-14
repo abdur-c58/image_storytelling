@@ -2,16 +2,18 @@ import "server-only";
 import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { readyAssetMap } from "@/lib/assets";
 import type { Db } from "@/lib/db";
-import { assets, projects, segments, tasks, type TaskRow } from "@/lib/db/schema";
+import { assets, projects, segments, stories, storyMasters, tasks, type ProjectRow, type TaskRow } from "@/lib/db/schema";
 import { buildImageItems, buildThumbnailItems, type ImageItem } from "@/lib/episode/prompt";
-import type { Episode } from "@/lib/episode/schema";
+import type { Episode, StoryBible } from "@/lib/episode/schema";
 import { env } from "@/lib/env";
 import { createTask, logEvent, type TaskType } from "@/lib/queue";
 import { assetKeys, INVALIDATES, requirements } from "./requirements";
+import { commitStoryState, mastersGateOn } from "./story";
 
 export const PROJECT_STATES = [
   "DRAFT",
   "VALIDATED",
+  "WAITING_MASTERS",
   "GENERATING",
   "IMAGES_RECEIVED",
   "THUMBNAIL",
@@ -110,6 +112,18 @@ export function imageTaskPayload(projectId: string, ep: Episode, items: ImageIte
   };
 }
 
+/** Masters an episode's images must wait for: null when the story has no masters gate. */
+export async function approvedMastersFor(db: Db, project: Pick<ProjectRow, "storyId">): Promise<Set<string> | null> {
+  if (!project.storyId) return null;
+  const [story] = await db.select().from(stories).where(eq(stories.id, project.storyId));
+  if (!story || !mastersGateOn(story.bible as StoryBible)) return null;
+  const rows = await db
+    .select({ key: storyMasters.masterKey })
+    .from(storyMasters)
+    .where(and(eq(storyMasters.storyId, project.storyId), eq(storyMasters.status, "approved")));
+  return new Set(rows.map((r) => r.key));
+}
+
 /**
  * Idempotent state machine step. Looks at what exists, queues whatever is now unblocked,
  * and recomputes the project's state. Safe to call after any event.
@@ -124,11 +138,17 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       if (project.state !== "PUBLISHED") {
         await tx.update(projects).set({ state: "PUBLISHED", stateDetail: "Published.", updatedAt: new Date() }).where(eq(projects.id, projectId));
       }
+      if (project.storyId && !(project.outputs as { story_state_committed_at?: string }).story_state_committed_at) {
+        await commitStoryState(tx, projectId);
+      }
       return;
     }
 
     const ep = project.episode as Episode;
     const req = requirements(ep);
+    const approvedMasters = await approvedMastersFor(tx, project);
+    const waitsOn = (item: ImageItem) => (approvedMasters ? item.master_keys.filter((k) => !approvedMasters.has(k)) : []);
+    const waitingFor = new Set<string>();
     const all = await tx.select().from(tasks).where(eq(tasks.projectId, projectId));
     const ready = await readyAssetMap(tx, projectId);
     const has = (key: string) => ready.has(key);
@@ -158,9 +178,12 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       const missingImages = req.images.filter((id) => !has(assetKeys.image(id)));
       if (missingImages.length && !segImageTasks.some(isActive)) {
         const imgTrigger = trigger(ep, "generate_images");
-        const items = buildImageItems(ep).filter((i) => missingImages.includes(i.segment_id));
+        const wanted = buildImageItems(ep).filter((i) => missingImages.includes(i.segment_id));
+        for (const item of wanted) for (const k of waitsOn(item)) waitingFor.add(k);
+        // All or nothing: images of one episode are generated against the same approved masters.
+        const items = waitingFor.size ? [] : wanted;
         const isRetry = segImageTasks.length > 0;
-        if (isRetry) {
+        if (isRetry && items.length) {
           await tx
             .update(segments)
             .set({ imageAttempts: sql`${segments.imageAttempts} + 1` })
@@ -195,12 +218,15 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       // ── Thumbnail base images (bot) ──────────────────────────────
       const thumbTasks = ofType("generate_images").filter(isThumbnailImageTask);
       const missingBases = req.thumbnailVariants.filter((v) => !has(assetKeys.thumbnailBase(v)));
-      if (!failure && missingBases.length && !thumbTasks.some(isActive)) {
+      const thumbItems = buildThumbnailItems(ep).filter((i) => missingBases.includes(Number(i.asset_key.split("/")[1])));
+      const thumbWaits = thumbItems.flatMap(waitsOn);
+      for (const k of thumbWaits) waitingFor.add(k);
+      if (!failure && missingBases.length && !thumbTasks.some(isActive) && !thumbWaits.length) {
         if (thumbTasks.filter((t) => t.status === "done").length >= env.maxImageAttempts) {
           failure = "Thumbnail base image still missing after repeated attempts.";
         } else {
           const thumbTrigger = trigger(ep, "generate_thumbnail_base");
-          const items = buildThumbnailItems(ep).filter((i) => missingBases.includes(Number(i.asset_key.split("/")[1])));
+          const items = thumbItems;
           created.push(
             await createTask(tx, {
               projectId,
@@ -292,6 +318,7 @@ export async function advance(db: Db, projectId: string): Promise<void> {
       else if (failure) state = "FAILED";
       else if (activeTypes.has("upload_youtube")) state = "PUBLISH_REQUESTED";
       else if (waiting) state = "REVIEW";
+      else if (waitingFor.size && missingImages.length) state = "WAITING_MASTERS";
       else if (activeTypes.has("render")) state = "RENDER";
       else if (activeTypes.has("mix")) state = "MIX";
       else if (imagesReady && activeTypes.has("thumbnail_compose")) state = "THUMBNAIL";
@@ -305,9 +332,12 @@ export async function advance(db: Db, projectId: string): Promise<void> {
         failure ??
         waiting ??
         [
+          waitingFor.size ? `waiting for ${waitingFor.size} story master(s) to be approved` : "",
           `images ${imagesDone}/${req.images.length}`,
           ...[...activeTypes].filter((t) => t !== "generate_images").map((t) => `${t} running`),
-        ].join(" · ");
+        ]
+          .filter(Boolean)
+          .join(" · ");
       await tx.update(projects).set({ state, stateDetail: detail, error: failure, updatedAt: new Date() }).where(eq(projects.id, projectId));
       if (failure && failure !== project.error) await logEvent(tx, projectId, null, "error", failure);
       return;

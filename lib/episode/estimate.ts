@@ -30,7 +30,12 @@ export interface EpisodeEstimate {
   tts_characters: number;
 }
 
-export function estimateEpisode(episode: Episode): EpisodeEstimate {
+type EstimateInput = Pick<Episode, "segments" | "thumbnail"> & {
+  voice: Pick<Episode["voice"], "pause_between_segments_ms">;
+  render: Pick<Episode["render"], "intro_sec" | "outro_sec">;
+};
+
+export function estimateEpisode(episode: EstimateInput): EpisodeEstimate {
   const pause = episode.voice.pause_between_segments_ms;
   let total = episode.render.intro_sec + episode.render.outro_sec;
   let words = 0;

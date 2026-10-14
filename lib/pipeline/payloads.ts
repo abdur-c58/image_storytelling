@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { assetRef, readyAssetMap, signedDownloadLink, type AssetRef } from "@/lib/assets";
 import type { Db } from "@/lib/db";
-import { projects, sfxCues, type TaskRow } from "@/lib/db/schema";
+import { assets, projects, segments, sfxCues, storyMasters, type TaskRow } from "@/lib/db/schema";
 import { YOUTUBE_CATEGORIES } from "@/lib/episode/constants";
 import type { ImageItem } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
@@ -28,12 +28,28 @@ async function refs(
   return out;
 }
 
+/** Signed links to the approved master images, by master key. */
+async function approvedMasterLinks(db: Db, storyId: string | null, baseUrl: string): Promise<Map<string, { url: string; label: string }>> {
+  const out = new Map<string, { url: string; label: string }>();
+  if (!storyId) return out;
+  const rows = await db
+    .select()
+    .from(storyMasters)
+    .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.status, "approved")));
+  for (const r of rows) if (r.approvedAssetId) out.set(r.masterKey, { url: signedDownloadLink(baseUrl, r.approvedAssetId), label: r.label });
+  return out;
+}
+
+function upload(baseUrl: string, task: TaskRow) {
+  return {
+    multipart_endpoint: `${baseUrl}/api/bot/tasks/${task.id}/assets`,
+    presign_endpoint: `${baseUrl}/api/bot/tasks/${task.id}/upload-url`,
+    browser_upload_page: uploadPageUrl(baseUrl, task.id, task.leaseId ?? ""),
+  };
+}
+
 /** Everything the bot or worker needs for one task, with fresh signed URLs. */
 export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promise<Record<string, unknown>> {
-  const [project] = await db.select().from(projects).where(eq(projects.id, task.projectId));
-  const ep = project.episode as Episode;
-  const ready = await readyAssetMap(db, task.projectId);
-  const req = requirements(ep);
   const payload = task.payload as Record<string, unknown>;
   const base = {
     task_id: task.id,
@@ -44,23 +60,43 @@ export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promi
     attempt: task.attempts,
     max_attempts: task.maxAttempts,
     project_id: task.projectId,
+    story_id: task.storyId,
   };
+
+  if (!task.projectId) {
+    // Story tasks: generate_location_master.
+    const done = new Set(
+      (await db.select().from(assets).where(and(eq(assets.taskId, task.id), eq(assets.status, "ready")))).map((a) => a.assetKey),
+    );
+    const items = ((payload.items as { asset_key: string }[]) ?? []).map((item) => ({ ...item, already_uploaded: done.has(item.asset_key) }));
+    return { ...base, payload: { ...payload, items }, total_items: items.length, upload: upload(baseUrl, task) };
+  }
+
+  const [project] = await db.select().from(projects).where(eq(projects.id, task.projectId));
+  const ep = project.episode as Episode;
+  const ready = await readyAssetMap(db, task.projectId);
+  const req = requirements(ep);
 
   switch (task.type) {
     case "generate_images": {
-      const items = (payload.items as ImageItem[]).map((item) => ({
-        ...item,
-        already_uploaded: ready.has(item.asset_key) && !task.scope.startsWith("regen"),
-      }));
+      const masters = await approvedMasterLinks(db, project.storyId, baseUrl);
+      const items = (payload.items as ImageItem[]).map((item) => {
+        const refs = (item.master_keys ?? []).flatMap((k) => {
+          const m = masters.get(k);
+          return m ? [{ master_key: k, label: m.label, url: m.url }] : [];
+        });
+        return {
+          ...item,
+          reference_images: refs,
+          reference_image_urls: [...refs.map((r) => r.url), ...(item.reference_image_urls ?? [])],
+          already_uploaded: ready.has(item.asset_key) && !task.scope.startsWith("regen"),
+        };
+      });
       return {
         ...base,
         payload: { ...payload, items },
         total_items: items.length,
-        upload: {
-          multipart_endpoint: `${baseUrl}/api/bot/tasks/${task.id}/assets`,
-          presign_endpoint: `${baseUrl}/api/bot/tasks/${task.id}/upload-url`,
-          browser_upload_page: uploadPageUrl(baseUrl, task.id, task.leaseId ?? ""),
-        },
+        upload: upload(baseUrl, task),
       };
     }
     case "upload_youtube": {
@@ -98,8 +134,11 @@ export async function hydrateTask(db: Db, task: TaskRow, baseUrl: string): Promi
         },
       };
     }
-    case "voice":
-      return { ...base, payload: { ...payload, episode: ep } };
+    case "voice": {
+      const rows = await db.select().from(segments).where(eq(segments.projectId, task.projectId));
+      const voiceModes = Object.fromEntries(rows.map((r) => [r.segmentId, r.voiceMode]));
+      return { ...base, payload: { ...payload, episode: ep, voice_modes: voiceModes } };
+    }
     case "align":
       return {
         ...base,

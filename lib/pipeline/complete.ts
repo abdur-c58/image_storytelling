@@ -1,12 +1,16 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { markAssetReady, pendingAssetsForTask, readyAssets } from "@/lib/assets";
 import type { Db } from "@/lib/db";
 import { projects, segments, sfxCache, sfxCues, usageEvents, type TaskRow } from "@/lib/db/schema";
 import type { Episode } from "@/lib/episode/schema";
-import { logEvent } from "@/lib/queue";
+import { spokenTagWords } from "@/lib/episode/tags";
+import { logEvent, ownerOf } from "@/lib/queue";
 import { getStorage } from "@/lib/storage";
+import { regenerateVoice } from "./actions";
+import { planCrops } from "./crop";
 import { finalizeDescription, type SfxCredit } from "./description";
+import { onStoryTaskCompleted } from "./story";
 
 interface UsageItem {
   provider: string;
@@ -53,6 +57,12 @@ interface SfxCandidate {
 }
 
 export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<string, unknown>): Promise<void> {
+  if (!task.projectId) {
+    const warnings = Array.isArray(result.warnings) ? (result.warnings as string[]) : [];
+    for (const w of warnings) await logEvent(db, ownerOf(task), task.id, "warning", String(w));
+    await onStoryTaskCompleted(db, task);
+    return;
+  }
   const projectId = task.projectId;
   await recordUsage(db, projectId, result.usage);
   const warnings = Array.isArray(result.warnings) ? (result.warnings as string[]) : [];
@@ -70,13 +80,31 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
     }
     case "align": {
       type AlignSeg = { segment_id: string; start_sec: number; end_sec: number; wer?: number; transcript?: string; flagged?: boolean };
+      const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+      const ep = project.episode as Episode;
+      const byId = new Map(ep.segments.map((s) => [s.id, s]));
+      const rows = new Map(
+        (await db.select().from(segments).where(eq(segments.projectId, projectId))).map((r) => [r.segmentId, r]),
+      );
+      const fallbackSegments: string[] = [];
       for (const s of (result.segments as AlignSeg[]) ?? []) {
+        const src = byId.get(s.segment_id);
+        const prev = rows.get(s.segment_id);
+        const prevQa = (prev?.qa ?? {}) as { tag_leak_count?: number };
+        const leaked = src?.tts_text && s.transcript ? spokenTagWords(src.tts_text, src.narration, s.transcript) : [];
+        const leakCount = (prevQa.tag_leak_count ?? 0) + (leaked.length ? 1 : 0);
         await db
           .update(segments)
           .set({
             startSec: s.start_sec,
             endSec: s.end_sec,
-            qa: { wer: s.wer ?? null, transcript: s.transcript ?? null, flagged: Boolean(s.flagged) },
+            qa: {
+              wer: s.wer ?? null,
+              transcript: s.transcript ?? null,
+              flagged: Boolean(s.flagged),
+              tag_leak: leaked,
+              tag_leak_count: leakCount,
+            },
             updatedAt: new Date(),
           })
           .where(and(eq(segments.projectId, projectId), eq(segments.segmentId, s.segment_id)));
@@ -85,6 +113,29 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
             transcript: s.transcript,
           });
         }
+        if (leaked.length) {
+          const canFallBack = ep.voice?.tag_fallback_mode === "split_and_silence" && prev?.voiceMode !== "split_and_silence";
+          if (leakCount >= 2 && canFallBack) {
+            fallbackSegments.push(s.segment_id);
+            await logEvent(db, projectId, task.id, "warning", `${s.segment_id}: tag words spoken aloud again (${leaked.join(", ")}); switching to split-and-silence and re-voicing.`);
+          } else {
+            await logEvent(
+              db,
+              projectId,
+              task.id,
+              "warning",
+              `${s.segment_id}: Fish seems to have read tag words aloud (${leaked.join(", ")}). Regenerate the voice${canFallBack ? "; if it happens again the segment switches to split-and-silence" : ""}.`,
+            );
+          }
+        }
+      }
+      await planCrops(db, projectId);
+      if (fallbackSegments.length) {
+        await db
+          .update(segments)
+          .set({ voiceMode: "split_and_silence", updatedAt: new Date() })
+          .where(and(eq(segments.projectId, projectId), inArray(segments.segmentId, fallbackSegments)));
+        for (const id of fallbackSegments) await regenerateVoice(db, projectId, id);
       }
       break;
     }
