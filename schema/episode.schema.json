@@ -903,6 +903,20 @@
                 "continues_into_next": {
                   "default": false,
                   "type": "boolean"
+                },
+                "bed_id": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -1486,6 +1500,24 @@
                 "minimum": 0,
                 "maximum": 10000
               }
+            },
+            "trim_silence": {
+              "type": "boolean"
+            },
+            "trim_threshold_db": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": -20
+            },
+            "keep_head_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "keep_tail_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
             }
           },
           "additionalProperties": {}
@@ -1612,6 +1644,16 @@
                   "const": 320
                 }
               ]
+            },
+            "image_lead_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "max_silence_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000
             }
           },
           "additionalProperties": {}

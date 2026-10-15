@@ -238,6 +238,7 @@ const LEGACY_IMAGE_FIELDS = ["motion", "characters_present", "shot_type", "mood"
 function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, now: Date, prefix: IssuePath) {
   const segIndex = new Map<string, number>();
   const sfxIds = new Map<string, string>();
+  const bedLast = new Map<string, { order: number; label: string }>();
   const P = (...p: IssuePath) => [...prefix, ...p];
   const segments = doc.segments;
 
@@ -442,6 +443,18 @@ function checkEpisodeDoc(doc: EpisodeDoc, voice: Voice, issues: IssueCollector, 
       }
       if (cue.continues_into_next && seg.order === segments.length) {
         issues.warn([...cuePath, "continues_into_next"], `${label}: last segment cannot continue into a next one.`);
+      }
+      if (cue.bed_id) {
+        const last = bedLast.get(cue.bed_id);
+        if (last?.order === seg.order) {
+          issues.warn([...cuePath, "bed_id"], `${label}: bed "${cue.bed_id}" already has a cue in this segment; this one adds nothing to the bed.`);
+        } else if (last && last.order !== seg.order - 1) {
+          issues.warn(
+            [...cuePath, "bed_id"],
+            `${label}: bed "${cue.bed_id}" was last used in ${last.label}, not the segment right before; it restarts here as a separate bed.`,
+          );
+        }
+        bedLast.set(cue.bed_id, { order: seg.order, label });
       }
     });
   });

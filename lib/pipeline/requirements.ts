@@ -22,6 +22,7 @@ export const assetKeys = {
   thumbnailBase: (variant: number) => `thumbnail_base/${variant}`,
   thumbnail: (variant: number) => `thumbnail/${variant}`,
   timeline: "timeline/main",
+  pacing: "timeline/pacing",
   mixAudio: "mix/audio",
   mixReport: "mix/report",
   captions: "captions/srt",

@@ -17,6 +17,8 @@ export interface Storage {
   presignGet(key: string, options: PresignOptions): Promise<string>;
   put(key: string, body: Uint8Array, contentType: string): Promise<void>;
   get(key: string): Promise<Buffer>;
+  /** Server-side copy of one object (no download through this process). */
+  copy(fromKey: string, toKey: string): Promise<void>;
   /** Size in bytes, or null when the object does not exist. */
   head(key: string): Promise<number | null>;
   delete(key: string): Promise<void>;

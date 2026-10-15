@@ -1,5 +1,6 @@
 import "server-only";
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -63,6 +64,11 @@ export class R2Storage implements Storage {
     const bytes = await response.Body?.transformToByteArray();
     if (!bytes) throw new Error(`Empty object: ${key}`);
     return Buffer.from(bytes);
+  }
+
+  async copy(fromKey: string, toKey: string): Promise<void> {
+    const source = `${this.bucket}/${fromKey.split("/").map(encodeURIComponent).join("/")}`;
+    await this.client.send(new CopyObjectCommand({ Bucket: this.bucket, Key: toKey, CopySource: source }));
   }
 
   async head(key: string): Promise<number | null> {

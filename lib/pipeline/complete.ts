@@ -59,6 +59,15 @@ async function recordUsage(db: Db, projectId: string, usage: unknown) {
   if (rows.length) await db.insert(usageEvents).values(rows);
 }
 
+/** The align stage's pacing report (timeline/pacing has the full version). */
+export interface PacingSummary {
+  max_silence_ms: number;
+  longest_silence: { duration_ms: number; at_sec: number; where: string } | null;
+  boundaries: { from: string; to: string; gap_ms: number; flagged: boolean }[];
+  segments: { segment_id: string; words: number; speech_sec: number; wpm: number | null; longest_pause_ms: number }[];
+  flagged: { at_sec: number; duration_ms: number; where: string }[];
+}
+
 interface SfxCandidate {
   provider: string;
   source_id: string;
@@ -99,9 +108,36 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
       break;
     }
     case "align": {
-      type AlignSeg = { segment_id: string; start_sec: number; end_sec: number; wer?: number; transcript?: string; flagged?: boolean };
+      type AlignSeg = {
+        segment_id: string;
+        start_sec: number;
+        end_sec: number;
+        wer?: number;
+        transcript?: string;
+        /** Every word Whisper heard in the clip, including any before/after the matched script. */
+        heard?: string;
+        tag_leak?: string[];
+        flagged?: boolean;
+      };
       const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
       const ep = project.episode as Episode;
+      const pacing = result.pacing as PacingSummary | undefined;
+      if (pacing && typeof pacing === "object") {
+        await db
+          .update(projects)
+          .set({ outputs: { ...(project.outputs as object), pacing } })
+          .where(eq(projects.id, projectId));
+        const flagged = Array.isArray(pacing.flagged) ? pacing.flagged : [];
+        if (flagged.length) {
+          await logEvent(
+            db,
+            projectId,
+            task.id,
+            "warning",
+            `Pacing: ${flagged.length} silence(s) over ${pacing.max_silence_ms} ms (longest ${Math.round(pacing.longest_silence?.duration_ms ?? 0)} ms${pacing.longest_silence?.where ? ` at ${pacing.longest_silence.where}` : ""}).`,
+          );
+        }
+      }
       const byId = new Map(ep.segments.map((s) => [s.id, s]));
       const rows = new Map(
         (await db.select().from(segments).where(eq(segments.projectId, projectId))).map((r) => [r.segmentId, r]),
@@ -111,7 +147,13 @@ export async function onTaskCompleted(db: Db, task: TaskRow, result: Record<stri
         const src = byId.get(s.segment_id);
         const prev = rows.get(s.segment_id);
         const prevQa = (prev?.qa ?? {}) as { tag_leak_count?: number };
-        const leaked = src?.tts_text && s.transcript ? spokenTagWords(src.tts_text, src.narration, s.transcript) : [];
+        const heard = s.heard ?? s.transcript;
+        const leaked = [
+          ...new Set([
+            ...(Array.isArray(s.tag_leak) ? s.tag_leak.map(String) : []),
+            ...(src?.tts_text && heard ? spokenTagWords(src.tts_text, src.narration, heard) : []),
+          ]),
+        ];
         const leakCount = (prevQa.tag_leak_count ?? 0) + (leaked.length ? 1 : 0);
         await db
           .update(segments)

@@ -88,6 +88,12 @@ const voiceFields = {
   dialogue_reply_gap_ms: z.number().int().min(0).max(5000),
   tag_fallback_mode: z.enum(TAG_FALLBACK_MODES),
   pause_durations_ms: z.record(z.string().min(1), z.number().int().min(0).max(10000)),
+  /** Cut leading/trailing silence off every TTS clip; the gaps above are then the only silence between clips. */
+  trim_silence: z.boolean(),
+  trim_threshold_db: z.number().min(-90).max(-20),
+  /** Silence kept before the first sound / after the last; counted as part of the configured gap. */
+  keep_head_ms: z.number().int().min(0).max(1000),
+  keep_tail_ms: z.number().int().min(0).max(1000),
 };
 
 export const VoiceSchema = obj({
@@ -107,6 +113,10 @@ export const VoiceSchema = obj({
   dialogue_reply_gap_ms: voiceFields.dialogue_reply_gap_ms.default(220),
   tag_fallback_mode: voiceFields.tag_fallback_mode.default("split_and_silence"),
   pause_durations_ms: voiceFields.pause_durations_ms.default({ ...DEFAULT_PAUSE_DURATIONS_MS }),
+  trim_silence: voiceFields.trim_silence.default(true),
+  trim_threshold_db: voiceFields.trim_threshold_db.default(-50),
+  keep_head_ms: voiceFields.keep_head_ms.default(40),
+  keep_tail_ms: voiceFields.keep_tail_ms.default(80),
 });
 
 const musicFields = {
@@ -148,6 +158,10 @@ const renderFields = {
   codec: z.literal("h264"),
   crf: z.number().int().min(10).max(35),
   audio_bitrate_kbps: z.union([z.literal(128), z.literal(192), z.literal(256), z.literal(320)]),
+  /** Each picture appears this long before its segment's first spoken word (cut never sits in dead air). */
+  image_lead_ms: z.number().int().min(0).max(1000),
+  /** Pacing report: silences longer than this between spoken words are flagged. */
+  max_silence_ms: z.number().int().min(100).max(10000),
 };
 
 export const RenderSchema = obj({
@@ -160,6 +174,8 @@ export const RenderSchema = obj({
   codec: renderFields.codec.default("h264"),
   crf: renderFields.crf.default(18),
   audio_bitrate_kbps: renderFields.audio_bitrate_kbps.default(192),
+  image_lead_ms: renderFields.image_lead_ms.default(120),
+  max_silence_ms: renderFields.max_silence_ms.default(700),
 });
 
 const cropFields = {
@@ -560,6 +576,12 @@ export const SfxCueSchema = obj({
   fade_in_ms: z.number().int().min(0).max(10000).default(100),
   fade_out_ms: z.number().int().min(0).max(10000).default(300),
   continues_into_next: z.boolean().default(false),
+  /**
+   * Sound bed: cues on consecutive segments with the same bed_id play as one continuous looped track (fade in
+   * on the first cue, fade out on the last, ducked under the voice). Without it, cues with the same
+   * search_query chained by continues_into_next are merged the same way.
+   */
+  bed_id: slug.nullable().default(null),
 });
 
 export const LineSchema = obj({

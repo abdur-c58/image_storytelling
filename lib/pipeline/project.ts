@@ -9,6 +9,7 @@ import { logEvent } from "@/lib/queue";
 import { archiveProject } from "./actions";
 import { advance } from "./advance";
 import { orderedSegments } from "./requirements";
+import { reuseUnchangedImages } from "./reuse";
 import { revalidateLaterEpisodes } from "./revalidate";
 import { recordSnapshot, refreshStoryStateCache } from "./snapshots";
 
@@ -94,6 +95,13 @@ export async function createVersion(db: Db, rawJson: string, validation: Validat
     return { projectId: id, episodeId: episode.id, version, replaced };
   });
 
+  if (created.version > 1) {
+    try {
+      await reuseUnchangedImages(db, id);
+    } catch (error) {
+      await logEvent(db, id, null, "warning", `Could not reuse images from earlier versions (${(error as Error).message}); missing ones are generated.`);
+    }
+  }
   await refreshStoryStateCache(db, storyId);
   await revalidateLaterEpisodes(db, storyId, number);
   if (autoStart) await advance(db, id);

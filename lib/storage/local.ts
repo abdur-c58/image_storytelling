@@ -1,5 +1,5 @@
 import "server-only";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { signToken, verifyToken } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -44,6 +44,12 @@ export class LocalStorage implements Storage {
 
   async get(key: string): Promise<Buffer> {
     return readFile(this.pathFor(key));
+  }
+
+  async copy(fromKey: string, toKey: string): Promise<void> {
+    const target = this.pathFor(toKey);
+    await mkdir(path.dirname(target), { recursive: true });
+    await copyFile(this.pathFor(fromKey), target);
   }
 
   async head(key: string): Promise<number | null> {

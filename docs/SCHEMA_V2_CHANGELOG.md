@@ -332,3 +332,24 @@ Re-pasting an identical bible is a no-op. Before a story has episodes the bible 
 7. **"Awaiting bot"** means a queued or running bot task (pictures, masters, upload), or `PUBLISH_REQUESTED` / `WAITING_MASTERS`. "Ready" means waiting at an approval gate (`REVIEW`).
 8. **Migration edge case.** If every version of a migrated episode was archived, the newest one is still the active version, but it stays archived (stopped) until you press **Resume** on its episode page.
 9. **Archive vs trash.** Archive only hides a story from the list. Trash stops it, and it is purged after 30 days.
+
+# Pacing, sound beds and image reuse (additive, still 2.3)
+
+All fields are optional with defaults, so existing documents validate unchanged.
+
+| Field | Default | Effect |
+|---|---|---|
+| `voice.trim_silence` | `true` | Trim leading and trailing silence from every TTS clip before joining. |
+| `voice.trim_threshold_db` | −50 | Level below which audio counts as silence (−90 to −20). |
+| `voice.keep_head_ms`, `voice.keep_tail_ms` | 40, 80 | Silence left at the start and end of each clip. Counted towards the gaps, so the total silence is the configured gap. |
+| `render.image_lead_ms` | 120 | Cuts between spoken segments move to this long before the next segment's first heard word. They never move into the previous segment's speech, and cuts after cards or silent segments stay put. |
+| `render.max_silence_ms` | 700 | The pacing report flags silences longer than this. |
+| `sfx[].bed_id` | `null` | Cues with the same id on consecutive segments play as one continuous, looped, ducked bed. |
+
+Decisions:
+
+1. **Episode speed beats the narrator's own speed.** `overrides.voice.speed` sets the narrator's speed even when `story_bible.narrator.voice.speed` is set. Character speeds are unchanged.
+2. **Settings sources.** Story defaults are stored already parsed, so a story value equal to the built-in default shows as "built-in default".
+3. **Beds play the first cue's clip at the first cue's gain.** Later cues' gains are ignored with a warning; their clips are still fetched (same file), so credits stay correct.
+4. **Pacing boundaries** are measured only between adjacent spoken segments. A hold over a card or silent segment is deliberate.
+5. **Image reuse** compares the segment id, the final prompt and the negative prompt, checking older versions newest first. The image is copied into the new version's folder, so deleting the old version keeps it. Changed master pictures don't count as a change; use Regenerate on the segment for that.

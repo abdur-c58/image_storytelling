@@ -15,7 +15,9 @@ import { episodePovReport as povReport, type PovStatus } from "@/lib/episode/str
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
 import { suspectMasters } from "@/lib/pipeline/actions";
+import type { PacingSummary } from "@/lib/pipeline/complete";
 import type { CropSummary } from "@/lib/pipeline/crop";
+import { effectiveSettings, type EffectiveSetting } from "@/lib/episode/effective";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "@/lib/pipeline/requirements";
 import { ago, fmtSec, StateBadge } from "../../ui";
 import { MediaPlayer } from "../../media";
@@ -79,6 +81,7 @@ export async function ProjectView({
     chapters_problem?: string | null;
     duration_sec?: number;
     mix_report?: Record<string, unknown> | null;
+    pacing?: PacingSummary | null;
     crop?: CropSummary;
     story_state_end?: StoryStateSnapshot;
     story_state_committed_at?: string;
@@ -86,12 +89,13 @@ export async function ProjectView({
   const v2 = isResolvedV2(ep);
   const cropSegments = outputs.crop?.segments ?? {};
   const stem = basename ?? `${ep.series.series_id}-ep${ep.series.episode_number}`;
-  const [videoUrl, previewUrl, thumbUrl, captionsUrl, reportUrl] = await Promise.all([
+  const [videoUrl, previewUrl, thumbUrl, captionsUrl, reportUrl, pacingUrl] = await Promise.all([
     url(assetKeys.video, `${stem}.mp4`),
     url(assetKeys.preview),
     url(assetKeys.thumbnail(0), `${stem}-thumbnail.jpg`),
     url(assetKeys.captions, `${stem}.srt`),
     url(assetKeys.mixReport, `${stem}-mix_report.json`),
+    url(assetKeys.pacing, `${stem}-pacing_report.json`),
   ]);
   const altThumbs = await Promise.all(req.thumbnailVariants.slice(1).map((v) => url(assetKeys.thumbnail(v))));
   const segPreview = new Map(
@@ -292,6 +296,11 @@ export async function ProjectView({
         <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-muted">
           {outputs.description ?? `${ep.youtube.description}\n\n(Chapters, series links and credits are filled in after render.)`}
         </pre>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <VoiceSettings ep={ep} names={speakerNames} />
+        <PacingCard pacing={outputs.pacing ?? null} reportUrl={pacingUrl} />
       </section>
 
       <section className="card overflow-x-auto">
@@ -605,10 +614,123 @@ function StateSummary({ snapshot }: { snapshot: StoryStateSnapshot }) {
 
 function MixSummary({ report }: { report: Record<string, unknown> }) {
   const num = (k: string) => (typeof report[k] === "number" ? (report[k] as number).toFixed(1) : "–");
+  const beds = typeof report.beds === "number" ? report.beds : 0;
   return (
     <p className="text-xs text-muted">
       Loudness {num("integrated_lufs")} LUFS · true peak {num("true_peak_dbtp")} dBTP · LRA {num("lra")} LU
+      {beds > 0 ? ` · ${beds} sound bed${beds === 1 ? "" : "s"}` : ""}
       {report.passed === false ? <span className="text-bad"> · outside target</span> : null}
     </p>
+  );
+}
+
+const SOURCE_CLASS: Record<EffectiveSetting["source"], string> = {
+  episode: "text-info",
+  story: "text-foreground",
+  default: "text-muted",
+};
+
+const SOURCE_TITLE: Record<EffectiveSetting["source"], string> = {
+  episode: "Set in this episode's overrides",
+  story: "From the story's defaults",
+  default: "Built-in default (the story may also set this same value)",
+};
+
+function settingValue(value: unknown): string {
+  if (typeof value === "boolean") return value ? "on" : "off";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "(default list)";
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${k} ${v}`)
+      .join(", ");
+  }
+  return value === null || value === undefined || value === "" ? "–" : String(value);
+}
+
+/** The voice and pacing settings this version runs with, and whether each comes from the episode, the story or the default. */
+function VoiceSettings({ ep, names }: { ep: Episode; names: Record<string, string> }) {
+  const { voice, render } = effectiveSettings(ep);
+  const speakers = Object.entries(ep.voices ?? {});
+  return (
+    <div className="card flex flex-col gap-2 text-xs">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="eyebrow">Voice settings</h2>
+        <span className="text-muted">
+          <span className={SOURCE_CLASS.episode}>episode override</span> · <span className={SOURCE_CLASS.story}>story</span> ·{" "}
+          <span className={SOURCE_CLASS.default}>built-in default</span>
+        </span>
+      </div>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5">
+        {[...voice, ...render].map((s) => (
+          <div key={s.key} className="contents">
+            <dt className="font-light text-muted">{s.key}</dt>
+            <dd className={`font-mono break-words ${SOURCE_CLASS[s.source]}`} title={SOURCE_TITLE[s.source]}>
+              {settingValue(s.value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {speakers.length > 0 && (
+        <div className="flex flex-wrap gap-1 pt-1">
+          {speakers.map(([id, v]) => (
+            <span key={id} className="chip text-muted" title={v.model || "worker default model"}>
+              {names[id] ?? id}: speed {v.speed}
+              {v.gain_db ? ` · ${v.gain_db > 0 ? "+" : ""}${v.gain_db} dB` : ""}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PacingCard({ pacing, reportUrl }: { pacing: PacingSummary | null; reportUrl: string | null }) {
+  if (!pacing) {
+    return (
+      <div className="card flex flex-col gap-2 text-xs">
+        <h2 className="eyebrow">Pacing</h2>
+        <p className="text-muted">After alignment: longest silence, gaps between segments and speech rate.</p>
+      </div>
+    );
+  }
+  const limit = pacing.max_silence_ms;
+  return (
+    <div className="card flex flex-col gap-2 overflow-x-auto text-xs">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="eyebrow">Pacing</h2>
+        {reportUrl && (
+          <a className="btn px-3 py-0.5 text-xs" href={reportUrl}>
+            pacing_report.json
+          </a>
+        )}
+      </div>
+      <p className={pacing.flagged.length ? "text-warn" : "text-muted"}>
+        Longest silence {pacing.longest_silence ? `${Math.round(pacing.longest_silence.duration_ms)} ms (${pacing.longest_silence.where})` : "–"} ·{" "}
+        {pacing.flagged.length} over {limit} ms
+      </p>
+      <table className="w-full">
+        <thead className="text-left text-muted">
+          <tr>
+            <th className="py-0.5">Segment</th>
+            <th>Words/min</th>
+            <th>Longest pause</th>
+            <th>Gap to next</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pacing.segments.map((s) => {
+            const gap = pacing.boundaries.find((b) => b.from === s.segment_id);
+            return (
+              <tr key={s.segment_id} className="border-t border-line">
+                <td className="py-0.5 font-mono">{s.segment_id}</td>
+                <td className="font-mono">{s.wpm ?? "–"}</td>
+                <td className={`font-mono ${s.longest_pause_ms > limit ? "text-warn" : ""}`}>{Math.round(s.longest_pause_ms)} ms</td>
+                <td className={`font-mono ${gap?.flagged ? "text-warn" : "text-muted"}`}>{gap ? `${Math.round(gap.gap_ms)} ms → ${gap.to}` : "–"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

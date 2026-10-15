@@ -230,7 +230,7 @@ So the way you break narration into sentences decides the camera rhythm. In dial
 
 ### overrides
 
-`{ voice?, audio?, render?, crop_policy?, structure? }`: any subset of fields; everything else comes from the story's `defaults`.
+`{ voice?, audio?, render?, crop_policy?, structure? }`: any subset of fields; everything else comes from the story's `defaults`. The episode page's **Voice settings** panel shows the values a version actually runs with and where each came from (episode override, story, built-in default). `overrides.voice.speed` also sets the narrator's speed, even when the story gives the narrator its own; characters keep their own speeds.
 
 ### character_status_changes[] (who is where)
 
@@ -350,6 +350,9 @@ Rules:
 - At most **8 tags per 100 words** (`max_tags_per_100_words`). Fewer is better; let the punctuation carry most of the rhythm.
 - Put pauses where a narrator would breathe: after a reveal, before a number, between the setup and the punchline.
 - Sentences get a natural gap (`pause_between_sentences_ms`, 350); segments get `pause_between_segments_ms` (450).
+- Every TTS clip has its leading and trailing silence trimmed (`trim_silence`, on; `trim_threshold_db` −50; `keep_head_ms` 40 and `keep_tail_ms` 80 are left on), so the silence you hear between two clips is exactly the configured gap, not the gap plus Fish's own padding.
+- Cues not in `tag_whitelist`, and cues beyond `max_tags_per_100_words`, are left out before synthesis (with a warning), so Fish never sees them. Pause cues are always kept.
+- After alignment, a pacing report lists the longest silence, the gap at each boundary between spoken segments, and words per minute per segment. Any silence over `render.max_silence_ms` (700) is flagged. Whisper QA also flags a clip where a tag word was read aloud.
 
 **If Fish reads a tag aloud** ("pause" heard in the voice), the QA flags the segment. On the second time it switches that segment to `split_and_silence`: the text is cut at pause tags and sentence ends, each piece is spoken separately, and exact silences are inserted. Writing clean tags avoids this.
 
@@ -388,8 +391,11 @@ Icons: `water_jug, can, gas_canister, zombie_head, radio, pigeon, kite, person, 
 | `must_include_tags`, `exclude_tags` | e.g. exclude `music`, `voice`. |
 | `placement` | `segment_start`, `segment_end`, `at_phrase` (with `at_phrase` copied word-for-word from the narration) or `whole_segment`. |
 | `offset_sec`, `duration_sec`, `loop`, `continues_into_next` | Timing. `loop: true` for beds. |
+| `bed_id` | Optional slug, e.g. `rain`. Cues with the same `bed_id` on **consecutive** segments play as one continuous sound bed (see below). |
 | `gain_db` | Relative to the voice (default −18). Beds −20 to −26, impacts −10 to −16. |
 | `fade_in_ms`, `fade_out_ms` | Defaults 100 / 300. |
+
+**Sound beds.** Put a cue with the same `bed_id` on each consecutive segment the ambience should cover. They are merged into one track from the first cue's clip: it loops seamlessly, never restarts at a segment boundary, fades in with the first cue's `fade_in_ms`, fades out with the last cue's `fade_out_ms`, plays at the first cue's `gain_db`, and is ducked under the voice. Using the `bed_id` again after a gap starts a new bed (warning). Without a `bed_id`, cues with the same `search_query` where the earlier one has `continues_into_next: true` are chained the same way. `mix_report.json` has one line per bed under `beds`.
 
 Only commercially licensed clips are used (the channel is monetised): CC0, public domain, CC BY with credit, or the local licensed library. Non-commercial and Sampling+ licences are excluded. Unfindable cues are left silent with a warning.
 
@@ -428,7 +434,8 @@ Leave `chapters` empty to get chapters from the segment roles instead: Cold open
 ### automation and render
 
 - `automation.auto_start_on_submit` (default `true`), `approval_gates.before_render` / `before_publish`.
-- `render` (via `overrides.render`): `fps`, `burn_in_captions` + `caption_style` (`bottom_bar`, `bold_center`), `intro_sec`, `outro_sec`, `crf`, `audio_bitrate_kbps`.
+- `render` (via `overrides.render`): `fps`, `burn_in_captions` + `caption_style` (`bottom_bar`, `bold_center`), `intro_sec`, `outro_sec`, `crf`, `audio_bitrate_kbps`, `image_lead_ms` (120: each picture appears this long before its segment's first spoken word, so cuts don't land in silence), `max_silence_ms` (700: the pacing report flags longer silences).
+- A new version of an episode reuses the earlier version's image for every segment whose id, final prompt and negative prompt are unchanged; only changed segments go to the image bot.
 
 ---
 

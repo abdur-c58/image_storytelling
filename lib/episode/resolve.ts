@@ -52,14 +52,17 @@ export function applyBibleAdditions(bible: StoryBible, add: BibleAdditions | und
   return out;
 }
 
-/** The voice each speaker uses: the narrator from narrator.voice over defaults.voice, characters from their own. */
-export function speakerVoices(story: StoryBible, voice: Voice): Record<string, ResolvedVoice> {
+/**
+ * The voice each speaker uses: the narrator from narrator.voice over defaults.voice, characters from their own.
+ * An episode's `overrides.voice.speed` beats the story's narrator speed; characters keep their own speed.
+ */
+export function speakerVoices(story: StoryBible, voice: Voice, episodeOverride?: { speed?: number }): Record<string, ResolvedVoice> {
   const n = story.narrator.voice;
   const out: Record<string, ResolvedVoice> = {
     [NARRATOR]: {
       voice_id: n?.voice_id || voice.voice_id,
       model: n?.model || voice.model,
-      speed: n?.speed ?? voice.speed,
+      speed: episodeOverride?.speed ?? n?.speed ?? voice.speed,
       gain_db: n?.gain_db ?? 0,
       style_notes: voice.style_notes,
       pronunciation_overrides: { ...voice.pronunciation_overrides },
@@ -142,7 +145,7 @@ export function resolveEpisode(bible: StoryBible, doc: EpisodeDoc): Episode {
   });
   return {
     ...rest,
-    voices: speakerVoices(story, voice),
+    voices: speakerVoices(story, voice, o.voice as { speed?: number } | undefined),
     series: {
       ...rest.series,
       series_id: story.story_id,
