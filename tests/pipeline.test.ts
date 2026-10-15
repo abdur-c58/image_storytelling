@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
 process.env.DATABASE_URL = "pglite:memory://";
@@ -20,7 +20,16 @@ import { rerollCrops } from "@/lib/pipeline/crop";
 import { ingestDocument } from "@/lib/pipeline/ingest";
 import { hydrateTask } from "@/lib/pipeline/payloads";
 import { assetKeys, orderedSegments, requirements } from "@/lib/pipeline/requirements";
-import { advanceStory, approveAllGenerated, approveMaster, MASTER_PRIORITY, masterDemand, saveStory, supersetProblems } from "@/lib/pipeline/story";
+import {
+  advanceStory,
+  approveAllGenerated,
+  approveMaster,
+  MASTER_PRIORITY,
+  masterDemand,
+  parkOnBadMasters,
+  saveStory,
+  supersetProblems,
+} from "@/lib/pipeline/story";
 import { completeTask, createTask, failTask, heartbeatTask, leaseNext, reapExpired } from "@/lib/queue";
 import { getStorage, projectObjectPrefix } from "@/lib/storage";
 
@@ -477,6 +486,52 @@ describe("stories (schema 2.0)", () => {
     for (const s of blocked) expect(asked.has(s)).toBe(false);
     for (const s of ready.filter((r) => segs.find((x) => x.segmentId === r)!.finalPrompt)) expect(asked.has(s)).toBe(true);
     expect((await project(id)).state).toBe("WAITING_MASTERS");
+  });
+
+  it("an image task that reports a broken master parks its images until the master is redone", async () => {
+    await clearQueue();
+    const bundle = { schema_version: "2.0", doc_type: "bundle", story_bible: bibleRaw(), episode: fullRaw() };
+    bundle.story_bible.story_id = "bad-master-story";
+    bundle.episode.story_id = "bad-master-story";
+    const out = await ingestDocument(db, JSON.stringify(bundle));
+    const id = out.projectId!;
+    await drain(id, { types: ["generate_location_master", "generate_character_group_master"] });
+    await approveAllGenerated(db, "bad-master-story");
+
+    await db.update(tasks).set({ availableAt: new Date(0) }).where(eq(tasks.status, "queued"));
+    let task: TaskRow | null = null;
+    while (!task || (task.payload as { purpose?: string }).purpose === "thumbnail") {
+      task = await leaseNext(db, "bot", "test-bot", 60, ["generate_images"]);
+      if (!task) throw new Error("no image task");
+    }
+    const items = (task.payload as { items: ImageItem[] }).items;
+    const bad = items.find((i) => i.master_keys.some((k) => k.startsWith("loc/")))!.master_keys.find((k) => k.startsWith("loc/"))!;
+
+    const ignored = await parkOnBadMasters(db, task, task.leaseId!, "x", [{ master_key: "loc/not/used/here", reason: "x" }]);
+    expect(ignored).toBeNull();
+    const sent = await parkOnBadMasters(db, task, task.leaseId!, "helipad has an H", [{ master_key: bad, reason: "Readable H on the helipad." }]);
+    expect(sent).toEqual([bad]);
+    await advance(db, id);
+
+    expect((await db.select().from(tasks).where(eq(tasks.id, task.id)))[0].status).toBe("superseded");
+    const [master] = await db.select().from(storyMasters).where(and(eq(storyMasters.storyId, "bad-master-story"), eq(storyMasters.masterKey, bad)));
+    expect(master.status).toBe("requested");
+    const regen = (await db.select().from(tasks).where(and(eq(tasks.storyId, "bad-master-story"), like(tasks.scope, `regen:${bad}:%`))))[0];
+    expect((regen.payload as { items: { fix_note?: string }[] }).items[0].fix_note).toBe("Readable H on the helipad.");
+
+    const blocked = items.filter((i) => i.master_keys.includes(bad)).map((i) => i.segment_id);
+    const queuedFor = async () =>
+      new Set(
+        (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "generate_images"), inArray(tasks.status, ["queued", "leased"]))))
+          .flatMap((t) => (t.payload as { items: ImageItem[] }).items.map((i) => i.segment_id)),
+      );
+    for (const s of blocked) expect((await queuedFor()).has(s)).toBe(false);
+    expect((await project(id)).state).not.toBe("FAILED");
+
+    await drain(id, { types: ["generate_location_master"] });
+    await approveMaster(db, "bad-master-story", bad);
+    const after = await queuedFor();
+    for (const s of blocked) expect(after.has(s)).toBe(true);
   });
 
   it("a dead task stops only the stages that need it", async () => {

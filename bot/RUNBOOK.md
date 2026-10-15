@@ -40,7 +40,7 @@ Every request needs `Authorization: Bearer <BOT_TOKEN>`. Optionally send `X-Agen
 | Upload a small file (≤ 4 MB) | `POST {{BASE_URL}}/api/bot/tasks/{task_id}/assets` as `multipart/form-data` with fields `lease_id`, `asset_key`, `file` |
 | Upload a large file | 1) `POST .../upload-url` body `{"lease_id","asset_key","content_type":"image/png","size_bytes":123}` → `upload_url`; 2) `PUT` the bytes to `upload_url` with the same `Content-Type`; 3) `POST .../assets/confirm` body `{"lease_id","asset_id"}` |
 | Finish | `POST {{BASE_URL}}/api/bot/tasks/{task_id}/complete` body `{"lease_id": "...", "result": {...}}` |
-| Give up | `POST {{BASE_URL}}/api/bot/tasks/{task_id}/fail` body `{"lease_id": "...", "reason": "what happened", "retryable": true}` |
+| Give up | `POST {{BASE_URL}}/api/bot/tasks/{task_id}/fail` body `{"lease_id": "...", "reason": "what happened", "retryable": true}` (image tasks may add `bad_masters`, see Job 2) |
 
 Send a heartbeat at least every `heartbeat_every_seconds` (in the task). If you stop heartbeating for `lease_seconds`, the task is taken back and given to someone else.
 
@@ -110,13 +110,15 @@ For each item where `already_uploaded` is `false`:
 2. Paste `final_prompt` exactly (and `negative_prompt` if the tool has a field for it).
 3. Generate, then check the result against **every line of `must_match`**:
    - `kind: "location"`: an **empty** place: no people, animals or characters. Every fixed landmark must be present and where the prompt says. Wrong or missing landmark → regenerate.
+   - Any kind: **no readable letters, numbers or logos** anywhere (signs, helipad markings, shop fronts, clock numerals). Episode images copy the master closely, so lettering here makes every image that uses it fail → regenerate.
+   - If the item has a `fix_note`, the previous picture was sent back for that reason; make sure the new one doesn't repeat it.
    - `kind: "character"`: a plain reference sheet of one character. Face, hair, build, clothes and colours must match the description. Anything different → regenerate.
 4. Upload with `asset_key` exactly as given.
 5. Heartbeat with progress.
 
 When all items are uploaded, call `complete` with `"result": {}`. Items you could not get right after 4 tries: leave them out and explain in `"result": {"notes": "..."}`; they are re-queued.
 
-The operator may reject a master on the Story page; it comes back to you as a new `generate_location_master` task with one item (`scope` starting with `regen:`).
+The operator may reject a master on the Story page, or an image task may report it as broken; it comes back to you as a new `generate_location_master` task with one item (`scope` starting with `regen:`), with the reason in `fix_note` when there is one.
 
 ### Group masters: `generate_character_group_master`
 
@@ -179,6 +181,19 @@ For each item where `already_uploaded` is `false`:
 Thumbnail tasks (`purpose: "thumbnail"`, `scope` starting with `thumbnail`) work the same way. Their images must have **no text**; the site adds the text.
 
 When every item is uploaded, call `complete` with `"result": {}`. If some items could not be made, still call `complete`; the response lists `missing` items, and they are re-queued automatically. If the tool refuses a prompt outright (policy), call `fail` with `retryable: false` and quote the refusal.
+
+**If a reference master itself breaks the rules** (for example readable letters painted on it, or a wrong landmark), the tool copies it and no retry can pass. Upload the items you could make, then call `fail` and name the master:
+
+```json
+{
+  "lease_id": "...",
+  "reason": "seg_034: the helipad in the master has a readable H; every output copies it.",
+  "retryable": false,
+  "bad_masters": [{ "master_key": "loc/clock_tower/base/A", "reason": "Readable letter H painted inside the helipad circle. Make the circle plain with no letters or markings." }]
+}
+```
+
+`master_key` must be one of the item's `reference_images`. The site sends that master back for regeneration with your reason, and the images wait until the new master is approved; they are then requested again automatically. Do not keep retrying an item whose master is the problem.
 
 ---
 

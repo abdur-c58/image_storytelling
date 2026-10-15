@@ -13,7 +13,7 @@ import { checkGeneratedImage, contentTypeForFormat } from "@/lib/images";
 import { advance } from "@/lib/pipeline/advance";
 import { finalizeWorkerAssets, onTaskCompleted } from "@/lib/pipeline/complete";
 import { hydrateTask } from "@/lib/pipeline/payloads";
-import { advanceStory, MASTER_PRIORITY } from "@/lib/pipeline/story";
+import { advanceStory, MASTER_PRIORITY, parkOnBadMasters } from "@/lib/pipeline/story";
 import {
   BOT_TASK_TYPES,
   completeTask,
@@ -375,12 +375,24 @@ export const FailSchema = z.object({
   lease_id: z.string().min(1),
   reason: z.string().min(1).max(4000),
   retryable: z.boolean().default(true),
+  /** generate_images only: approved masters that themselves break the rules, so no image built on them can pass. */
+  bad_masters: z
+    .array(z.object({ master_key: z.string().min(1).max(200), reason: z.string().min(1).max(1000) }))
+    .max(10)
+    .optional(),
 });
 
 export async function fail(kind: TaskKind, agentId: string, taskId: string, body: z.infer<typeof FailSchema>) {
   const db = await getDb();
   await touchAgent(db, agentId, kind);
   const task = await requireLease(db, kind, taskId, body.lease_id);
+  if (kind === "bot" && body.bad_masters?.length) {
+    const sentBack = await parkOnBadMasters(db, task, body.lease_id, body.reason, body.bad_masters);
+    if (sentBack) {
+      await advanceOwner(db, ownerOf(task));
+      return { ok: true, status: "superseded", masters_sent_back: sentBack };
+    }
+  }
   const row = await failTask(db, task.id, body.lease_id, body.reason, body.retryable);
   await advanceOwner(db, ownerOf(task));
   return { ok: true, status: row?.status, available_at: row?.availableAt };

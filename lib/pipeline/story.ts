@@ -2,7 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { sha256Hex } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
-import { assets, episodes, projects, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
+import { assets, episodes, projects, segments, stories, storyMasters, tasks, type StoryMasterRow, type StoryRow, type TaskRow } from "@/lib/db/schema";
 import { initialStoryState, type StoryStateSnapshot } from "@/lib/episode/continuity";
 import { buildMasterItems, episodeMasterKeys, type MasterItem } from "@/lib/episode/prompt";
 import { NARRATOR } from "@/lib/episode/constants";
@@ -331,7 +331,7 @@ const MASTER_TASK_TYPES = ["generate_location_master", GROUP_TASK] as const;
 type MasterTaskType = (typeof MASTER_TASK_TYPES)[number];
 const taskTypeFor = (r: { kind: string }): MasterTaskType => (r.kind === "group" ? GROUP_TASK : "generate_location_master");
 
-function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[]) {
+function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[], fixNote?: string) {
   const bible = requireBible(story);
   return {
     story_id: story.id,
@@ -354,6 +354,7 @@ function masterTaskPayload(story: StoryRow, rows: StoryMasterRow[]) {
       aspect_ratio: bible.style_bible.aspect_ratio,
       output_filename: `${r.masterKey.replaceAll("/", "__")}.png`,
       reference_image_urls: [],
+      ...(fixNote ? { fix_note: fixNote } : {}),
     })),
   };
 }
@@ -601,7 +602,8 @@ export async function approveAllGenerated(db: Db, storyId: string): Promise<numb
 }
 
 /** Drop the current approval and ask the bot for a new candidate. */
-export async function regenerateMaster(db: Db, storyId: string, masterKey: string): Promise<void> {
+/** `fixNote` tells the bot what was wrong with the previous picture (e.g. reported by an image task). */
+export async function regenerateMaster(db: Db, storyId: string, masterKey: string, fixNote?: string): Promise<void> {
   const story = await getStory(db, storyId);
   if (!story) throw new Error("Story not found.");
   const [row] = await db
@@ -616,7 +618,7 @@ export async function regenerateMaster(db: Db, storyId: string, masterKey: strin
     kind: "bot",
     type,
     scope: `regen:${masterKey}:${Date.now()}`,
-    payload: masterTaskPayload(story, [row]),
+    payload: masterTaskPayload(story, [row], fixNote),
     priority: 20,
     maxAttempts: t?.retry.max_attempts ?? 3,
     timeoutMinutes: t?.timeout_minutes ?? 60,
@@ -625,7 +627,7 @@ export async function regenerateMaster(db: Db, storyId: string, masterKey: strin
     .update(storyMasters)
     .set({ status: "requested", approvedAssetId: null, approvedAt: null, attempts: 1, updatedAt: new Date() })
     .where(and(eq(storyMasters.storyId, storyId), eq(storyMasters.masterKey, masterKey)));
-  await logEvent(db, { storyId }, null, "info", `Regenerating master ${masterKey}.`);
+  await logEvent(db, { storyId }, null, "info", `Regenerating master ${masterKey}.${fixNote ? ` Reason: ${fixNote}` : ""}`);
   await advanceStory(db, storyId);
 }
 
@@ -664,4 +666,59 @@ export async function deleteStory(db: Db, storyId: string): Promise<{ filesDelet
   filesDeleted += await getStorage().deletePrefix(storyObjectPrefix(storyId));
   await db.delete(stories).where(eq(stories.id, storyId));
   return { filesDeleted };
+}
+
+export interface BadMaster {
+  master_key: string;
+  reason: string;
+}
+
+/**
+ * An image task reports that an approved master itself breaks the rules (e.g. readable letters),
+ * so no image built on it can pass. Instead of failing the episode, the master is sent back for
+ * regeneration with the reason, and the task's images wait for the new master's approval.
+ * Returns the masters that were sent back, or null when the report doesn't apply (normal failure).
+ */
+export async function parkOnBadMasters(db: Db, task: TaskRow, leaseId: string, reason: string, bad: BadMaster[]): Promise<string[] | null> {
+  if (task.type !== "generate_images" || !task.projectId) return null;
+  const [project] = await db.select({ storyId: projects.storyId }).from(projects).where(eq(projects.id, task.projectId));
+  if (!project?.storyId) return null;
+  const items = ((task.payload as { items?: { segment_id: string; master_keys?: string[] }[] }).items ?? []);
+  const used = new Set(items.flatMap((i) => i.master_keys ?? []));
+  const reported = [...new Map(bad.filter((b) => used.has(b.master_key)).map((b) => [b.master_key, b])).values()];
+  if (!reported.length) return null;
+  const rows = await db
+    .select()
+    .from(storyMasters)
+    .where(and(eq(storyMasters.storyId, project.storyId), inArray(storyMasters.masterKey, reported.map((b) => b.master_key))));
+  const known = new Map(rows.map((r) => [r.masterKey, r]));
+  const sentBack = reported.filter((b) => known.has(b.master_key));
+  if (!sentBack.length) return null;
+
+  const [parked] = await db
+    .update(tasks)
+    .set({ status: "superseded", error: reason.slice(0, 4000), leaseId: null, leaseExpiresAt: null, completedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(tasks.id, task.id), eq(tasks.leaseId, leaseId), eq(tasks.status, "leased")))
+    .returning();
+  if (!parked) return null;
+  for (const b of sentBack) {
+    const status = known.get(b.master_key)!.status;
+    // Anything else means it is already being redone (another task reported it first): just wait for it.
+    if (status === "approved" || status === "generated") await regenerateMaster(db, project.storyId, b.master_key, b.reason.trim().slice(0, 1000));
+  }
+  const segmentIds = items.map((i) => i.segment_id);
+  if (segmentIds.length) {
+    await db.update(segments).set({ imageAttempts: 0 }).where(and(eq(segments.projectId, task.projectId), inArray(segments.segmentId, segmentIds)));
+  }
+  await logEvent(
+    db,
+    task.projectId,
+    task.id,
+    "warning",
+    `${segmentIds.join(", ")} wait for master${sentBack.length === 1 ? "" : "s"} ${sentBack.map((b) => b.master_key).join(", ")} to be redone and approved: ${sentBack
+      .map((b) => b.reason)
+      .join(" / ")
+      .slice(0, 800)}`,
+  );
+  return sentBack.map((b) => b.master_key);
 }
