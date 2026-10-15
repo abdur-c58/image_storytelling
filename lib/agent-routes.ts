@@ -41,7 +41,8 @@ const HeartbeatSchema = z.object({
       total_items: z.number().int().nonnegative().optional(),
       message: z.string().max(500).optional(),
     })
-    .optional(),
+    // The worker sends null between progress updates (a keep-alive beat during long steps).
+    .nullish(),
 });
 
 const NextSchema = z.object({
@@ -82,7 +83,7 @@ export function agentRoutes(role: Role) {
       const { agent } = await auth(request, role);
       const { id } = await ctx.params;
       const body = await readJson(request, HeartbeatSchema);
-      return json(await heartbeat(role, agent, id, body.lease_id, body.progress));
+      return json(await heartbeat(role, agent, id, body.lease_id, body.progress ?? undefined));
     }),
 
     uploadUrl: handle(async (request: Request, ctx: Ctx) => {
