@@ -26,7 +26,11 @@ export async function retryFailed(db: Db, projectId: string, taskId?: string): P
     .select()
     .from(tasks)
     .where(and(eq(tasks.projectId, projectId), inArray(tasks.status, ["dead"]), ...(taskId ? [eq(tasks.id, taskId)] : [])));
-  for (const t of dead) await retryTask(db, t.id);
+  for (const t of dead) {
+    // advance() re-requests whatever images are still missing, so an old batch must not redo fixed ones.
+    if (t.type === "generate_images") await retireDeadImageTasks(db, projectId, t.id);
+    else await retryTask(db, t.id);
+  }
   await db
     .update(tasks)
     .set({ status: "superseded" })
@@ -35,6 +39,15 @@ export async function retryFailed(db: Db, projectId: string, taskId?: string): P
   await db.update(projects).set({ error: null }).where(eq(projects.id, projectId));
   await logEvent(db, projectId, null, "info", `Retry requested for ${dead.length} failed task(s).`);
   await advance(db, projectId);
+}
+
+async function retireDeadImageTasks(db: Db, projectId: string, taskId?: string): Promise<void> {
+  await db
+    .update(tasks)
+    .set({ status: "superseded", updatedAt: new Date() })
+    .where(
+      and(eq(tasks.projectId, projectId), eq(tasks.type, "generate_images"), eq(tasks.status, "dead"), ...(taskId ? [eq(tasks.id, taskId)] : [])),
+    );
 }
 
 export async function regenerateImage(db: Db, projectId: string, segmentId: string): Promise<void> {
@@ -52,6 +65,8 @@ export async function regenerateImage(db: Db, projectId: string, segmentId: stri
     maxAttempts: 3,
     timeoutMinutes: 60,
   });
+  await retireDeadImageTasks(db, projectId);
+  await db.update(segments).set({ imageAttempts: 0 }).where(and(eq(segments.projectId, projectId), eq(segments.segmentId, segmentId)));
   const affectedCards = Object.entries(requirements(ep).cardBackgrounds)
     .filter(([, src]) => src === segmentId)
     .map(([card]) => card);

@@ -51,6 +51,14 @@ export interface CreateState {
 
 const storyHref = (storyId: string) => `/stories/${encodeURIComponent(storyId)}`;
 
+/** Drizzle wraps database errors as "Failed query: <sql> params: …"; the reason is in `cause`. */
+function errorText(error: unknown): string {
+  const e = error as Error;
+  const cause = e?.cause as Error | undefined;
+  if (cause?.message && e.message?.startsWith("Failed query")) return `Database error: ${cause.message}. Try again in a moment.`;
+  return e?.message ?? String(error);
+}
+
 /** Story bible → its folder; episode or bundle → the new episode version. `scope` limits it to one folder. */
 export async function createProjectAction(_prev: CreateState, form: FormData): Promise<CreateState> {
   await requireAdmin();
@@ -164,7 +172,7 @@ export async function projectAction(projectId: string, action: ProjectAction): P
     }
   } catch (error) {
     unstable_rethrow(error);
-    return { error: (error as Error).message };
+    return { error: errorText(error) };
   }
   refresh();
   return { error: null };
@@ -180,7 +188,7 @@ export async function versionAction(projectId: string, action: VersionAction): P
     if (action.kind === "activate") await activateVersion(db, projectId);
     else target = await duplicateVersion(db, projectId);
   } catch (error) {
-    return { error: (error as Error).message };
+    return { error: errorText(error) };
   }
   if (target) {
     const [p] = await db.select({ storyId: projects.storyId, n: projects.episodeNumber, v: projects.version }).from(projects).where(eq(projects.id, target));
@@ -205,7 +213,7 @@ export async function deleteProjectAction(projectId: string, typedTitle: string)
     const { episodeRemoved } = await deleteVersion(db, projectId);
     if (project.storyId) back = episodeRemoved ? storyHref(project.storyId) : episodeHref(project.storyId, project.n);
   } catch (error) {
-    return { error: `Delete failed (${(error as Error).message}). The version is still here; try again.` };
+    return { error: `Delete failed (${errorText(error)}). The version is still here; try again.` };
   }
   redirect(back);
 }
@@ -319,7 +327,7 @@ export async function storyAction(storyId: string, action: StoryAction): Promise
     }
   } catch (error) {
     unstable_rethrow(error);
-    return { error: (error as Error).message };
+    return { error: errorText(error) };
   }
   refresh();
   return { error: null };
@@ -332,7 +340,7 @@ export async function createStoryAction(input: { title: string; slug: string; de
   try {
     id = await createEmptyStory(await getDb(), input);
   } catch (error) {
-    return { error: (error as Error).message };
+    return { error: errorText(error) };
   }
   redirect(storyHref(id));
 }
@@ -345,7 +353,7 @@ export async function deleteStoryAction(storyId: string, typedTitle: string, for
     if (forever) await deleteTrashedStory(db, storyId, typedTitle);
     else await softDeleteStory(db, storyId, typedTitle);
   } catch (error) {
-    return { error: (error as Error).message };
+    return { error: errorText(error) };
   }
   redirect((forever ? "/stories?trash=1" : "/stories"));
 }
@@ -369,7 +377,7 @@ export async function saveVoiceSettingsAction(settings: VoiceSettings): Promise<
   try {
     await saveVoiceSettings(await getDb(), settings);
   } catch (error) {
-    return { error: (error as Error).message };
+    return { error: errorText(error) };
   }
   refresh();
   return { error: null };

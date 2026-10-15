@@ -281,6 +281,28 @@ describe("pipeline state machine", () => {
     expect((await project(id)).state).toBe("PUBLISHED");
   });
 
+  it("a dead image batch is dropped, not redone, once its image is regenerated", async () => {
+    await clearQueue();
+    const id = await makeProject(minimalRaw());
+    await drain(id, { skipImages: ["seg_002"], types: ["generate_images"], maxSteps: 1 });
+    await db.update(tasks).set({ availableAt: new Date(0) }).where(eq(tasks.status, "queued"));
+    const retry = (await leaseNext(db, "bot", "test-bot", 60, ["generate_images"]))!;
+    expect(retry.scope).toMatch(/^retry/);
+    await failTask(db, retry.id, retry.leaseId!, "the master itself has a letter H", false);
+    await advance(db, id);
+    expect((await project(id)).state).toBe("FAILED");
+
+    await regenerateImage(db, id, "seg_002");
+    const [old] = await db.select().from(tasks).where(eq(tasks.id, retry.id));
+    expect(old.status).toBe("superseded");
+    await drain(id);
+    const p = await project(id);
+    expect(p.state).not.toBe("FAILED");
+    const redone = (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "generate_images"), eq(tasks.status, "done"))))
+      .filter((t) => t.scope.startsWith("retry"));
+    expect(redone).toHaveLength(0);
+  });
+
   it("regenerating an image re-renders but does not redo voice", async () => {
     await clearQueue();
     const id = await makeProject(minimalRaw(), (raw) => {
