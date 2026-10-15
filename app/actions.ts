@@ -11,6 +11,7 @@ import { logEvent } from "@/lib/queue";
 import type { ValidationResult } from "@/lib/episode/validate";
 import {
   approveGate,
+  redoMasterAndRetry,
   regenerateImage,
   regenerateThumbnailBase,
   regenerateVoice,
@@ -121,6 +122,7 @@ export async function validateDocumentAction(text: string, scope?: string | null
 export type ProjectAction =
   | { kind: "start" }
   | { kind: "retry"; taskId?: string }
+  | { kind: "redo_master_retry"; masterKey: string }
   | { kind: "regen_image"; segmentId: string }
   | { kind: "regen_thumbnail" }
   | { kind: "regen_voice"; segmentId: string }
@@ -141,6 +143,9 @@ export async function projectAction(projectId: string, action: ProjectAction): P
         break;
       case "retry":
         await retryFailed(db, projectId, action.taskId);
+        break;
+      case "redo_master_retry":
+        await redoMasterAndRetry(db, projectId, action.masterKey);
         break;
       case "regen_image":
         await regenerateImage(db, projectId, action.segmentId);

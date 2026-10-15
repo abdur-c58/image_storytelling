@@ -14,6 +14,7 @@ import type { Episode, Line, Segment } from "@/lib/episode/schema";
 import { episodePovReport as povReport, type PovStatus } from "@/lib/episode/structure";
 import type { ValidationIssue } from "@/lib/episode/validate";
 import { pageBaseUrl } from "@/lib/http";
+import { suspectMasters } from "@/lib/pipeline/actions";
 import type { CropSummary } from "@/lib/pipeline/crop";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "@/lib/pipeline/requirements";
 import { ago, fmtSec, StateBadge } from "../../ui";
@@ -133,6 +134,16 @@ export async function ProjectView({
           {(project.state === "FAILED" || deadTasks.length > 0) && (
             <ActionButton projectId={id} action={{ kind: "retry" }} primary label="Retry failed" />
           )}
+          {project.storyId &&
+            suspectMasters(deadTasks).map((key) => (
+              <ActionButton
+                key={key}
+                projectId={id}
+                action={{ kind: "redo_master_retry", masterKey: key }}
+                label={`Redo master ${key} & retry`}
+                confirm={`Regenerate master ${key} (the failure reason is sent to the bot) and retry? The images that use it wait until you approve the new master, then continue on their own. Images other episodes already made are kept.`}
+              />
+            ))}
           {waitingRender && <ActionButton projectId={id} action={{ kind: "approve", gate: "render" }} primary label="Approve render" />}
           {waitingPublish && (
             <ActionButton projectId={id} action={{ kind: "approve", gate: "publish" }} primary label="Approve publish" confirm="Send this video to the bot for upload?" />

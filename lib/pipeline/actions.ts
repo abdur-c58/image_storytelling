@@ -1,13 +1,14 @@
 import "server-only";
 import { and, eq, inArray, like, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { assets, projects, segments, sfxCues, tasks } from "@/lib/db/schema";
+import { assets, projects, segments, sfxCues, tasks, type TaskRow } from "@/lib/db/schema";
 import { buildSegmentImageItem, segmentNeedsGeneratedImage } from "@/lib/episode/prompt";
 import type { Episode } from "@/lib/episode/schema";
 import { createTask, logEvent, retryTask } from "@/lib/queue";
 import { episodeObjectPrefix, getStorage, projectObjectPrefix } from "@/lib/storage";
 import { advance, imageTaskPayload, invalidateDownstreamOf, invalidateStages } from "./advance";
 import { assetKeys, requirements } from "./requirements";
+import { regenerateMaster } from "./story";
 
 async function loadProject(db: Db, projectId: string) {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
@@ -39,6 +40,32 @@ export async function retryFailed(db: Db, projectId: string, taskId?: string): P
   await db.update(projects).set({ error: null }).where(eq(projects.id, projectId));
   await logEvent(db, projectId, null, "info", `Retry requested for ${dead.length} failed task(s).`);
   await advance(db, projectId);
+}
+
+/** Masters a dead image task's error names (e.g. "the master loc/x/y/A has a letter H"): candidates for "Redo master & retry". */
+export function suspectMasters(deadTasks: TaskRow[]): string[] {
+  const keys = new Set<string>();
+  for (const t of deadTasks) {
+    if (t.type !== "generate_images" || !t.error) continue;
+    const items = (t.payload as { items?: { master_keys?: string[] }[] }).items ?? [];
+    for (const k of items.flatMap((i) => i.master_keys ?? [])) if (t.error.includes(k)) keys.add(k);
+  }
+  return [...keys];
+}
+
+/** Send a master back for regeneration (with the failure as its fix note), then retry: the images wait for its approval. */
+export async function redoMasterAndRetry(db: Db, projectId: string, masterKey: string): Promise<void> {
+  const { project } = await loadProject(db, projectId);
+  if (!project.storyId) throw new Error("This episode has no story masters.");
+  const dead = await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.status, "dead")));
+  if (!suspectMasters(dead).includes(masterKey)) throw new Error(`No failed image task names ${masterKey}.`);
+  const note = dead
+    .filter((t) => t.error?.includes(masterKey))
+    .map((t) => t.error!)
+    .join(" / ")
+    .slice(0, 1000);
+  await regenerateMaster(db, project.storyId, masterKey, note);
+  await retryFailed(db, projectId);
 }
 
 async function retireDeadImageTasks(db: Db, projectId: string, taskId?: string): Promise<void> {

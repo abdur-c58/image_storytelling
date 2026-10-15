@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { agents, episodes, projects, stories, storyMasters, tasks } from "@/lib/db/schema";
 import { episodeHref } from "@/lib/episode/naming";
+import { suspectMasters } from "@/lib/pipeline/actions";
 import { ActionButton, AutoRefresh } from "../projects/[id]/client";
 import { StoryActionButton } from "../stories/[id]/client";
 import { ago, PageHeader } from "../ui";
@@ -101,6 +102,11 @@ export default async function QueuePage({ searchParams }: PageProps<"/queue">) {
     .where(and(eq(projects.archived, false), inArray(projects.state, ["FAILED", "REVIEW"])))
     .orderBy(asc(projects.episodeNumber));
   const needsYou = masterNeeds.length + stuckEpisodes.length;
+  const failedIds = stuckEpisodes.filter((e) => e.state === "FAILED").map((e) => e.id);
+  const deadRows = failedIds.length
+    ? await db.select().from(tasks).where(and(inArray(tasks.projectId, failedIds), eq(tasks.status, "dead")))
+    : [];
+  const suspectsOf = (projectId: string) => suspectMasters(deadRows.filter((t) => t.projectId === projectId));
 
   const running = open.filter((t) => t.status === "leased");
   const next = open.filter((t) => t.status === "queued" && t.availableAt <= now);
@@ -213,7 +219,22 @@ export default async function QueuePage({ searchParams }: PageProps<"/queue">) {
                   </p>
                   <p className="break-words text-xs text-muted">{e.detail}</p>
                 </div>
-                {e.state === "FAILED" && <ActionButton projectId={e.id} action={{ kind: "retry" }} label="Retry failed" primary small />}
+                {e.state === "FAILED" && (
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <ActionButton projectId={e.id} action={{ kind: "retry" }} label="Retry failed" primary small />
+                    {e.storyId &&
+                      suspectsOf(e.id).map((key) => (
+                        <ActionButton
+                          key={key}
+                          projectId={e.id}
+                          action={{ kind: "redo_master_retry", masterKey: key }}
+                          label={`Redo master ${key} & retry`}
+                          confirm={`Regenerate master ${key} (the failure reason is sent to the bot) and retry? The images that use it wait until you approve the new master, then continue on their own.`}
+                          small
+                        />
+                      ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

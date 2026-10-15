@@ -13,7 +13,7 @@ import { projects, segments, stories, storyMasters, tasks, type TaskRow } from "
 import type { StoryState } from "@/lib/episode/continuity";
 import type { ImageItem } from "@/lib/episode/prompt";
 import { StoredStoryBibleSchema, type Episode, type StoryBible } from "@/lib/episode/schema";
-import { approveGate, deleteProject, regenerateImage, retryFailed } from "@/lib/pipeline/actions";
+import { approveGate, deleteProject, redoMasterAndRetry, regenerateImage, retryFailed, suspectMasters } from "@/lib/pipeline/actions";
 import { advance } from "@/lib/pipeline/advance";
 import { onTaskCompleted } from "@/lib/pipeline/complete";
 import { rerollCrops } from "@/lib/pipeline/crop";
@@ -532,6 +532,47 @@ describe("stories (schema 2.0)", () => {
     await approveMaster(db, "bad-master-story", bad);
     const after = await queuedFor();
     for (const s of blocked) expect(after.has(s)).toBe(true);
+  });
+
+  it("'Redo master & retry' regenerates the master a dead image task names, then resumes its images", async () => {
+    await clearQueue();
+    const bundle = { schema_version: "2.0", doc_type: "bundle", story_bible: bibleRaw(), episode: fullRaw() };
+    bundle.story_bible.story_id = "redo-master-story";
+    bundle.episode.story_id = "redo-master-story";
+    const id = (await ingestDocument(db, JSON.stringify(bundle))).projectId!;
+    await drain(id, { types: ["generate_location_master", "generate_character_group_master"] });
+    await approveAllGenerated(db, "redo-master-story");
+
+    await db.update(tasks).set({ availableAt: new Date(0) }).where(eq(tasks.status, "queued"));
+    let task: TaskRow | null = null;
+    while (!task || (task.payload as { purpose?: string }).purpose === "thumbnail") {
+      task = await leaseNext(db, "bot", "test-bot", 60, ["generate_images"]);
+      if (!task) throw new Error("no image task");
+    }
+    const items = (task.payload as { items: ImageItem[] }).items;
+    const bad = items.flatMap((i) => i.master_keys).find((k) => k.startsWith("loc/"))!;
+    await failTask(db, task.id, task.leaseId!, `the master ${bad} has a letter H`, false);
+    await advance(db, id);
+    expect((await project(id)).state).toBe("FAILED");
+
+    const dead = await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.status, "dead")));
+    expect(suspectMasters(dead)).toEqual([bad]);
+    await redoMasterAndRetry(db, id, bad);
+
+    const [master] = await db.select().from(storyMasters).where(and(eq(storyMasters.storyId, "redo-master-story"), eq(storyMasters.masterKey, bad)));
+    expect(master.status).toBe("requested");
+    const regen = (await db.select().from(tasks).where(and(eq(tasks.storyId, "redo-master-story"), like(tasks.scope, `regen:${bad}:%`))))[0];
+    expect((regen.payload as { items: { fix_note?: string }[] }).items[0].fix_note).toMatch(/letter H/);
+    expect((await project(id)).state).not.toBe("FAILED");
+
+    const blocked = items.filter((i) => i.master_keys.includes(bad)).map((i) => i.segment_id);
+    await drain(id, { types: ["generate_location_master"] });
+    await approveMaster(db, "redo-master-story", bad);
+    const queued = new Set(
+      (await db.select().from(tasks).where(and(eq(tasks.projectId, id), eq(tasks.type, "generate_images"), eq(tasks.status, "queued"))))
+        .flatMap((t) => (t.payload as { items: ImageItem[] }).items.map((i) => i.segment_id)),
+    );
+    for (const s of blocked) expect(queued.has(s)).toBe(true);
   });
 
   it("a dead task stops only the stages that need it", async () => {
