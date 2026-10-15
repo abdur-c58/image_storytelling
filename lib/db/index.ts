@@ -21,7 +21,7 @@ function databaseUrl(): string {
   return (process.env.DATABASE_URL ?? "").trim();
 }
 
-async function createHandle(): Promise<Omit<DbHandle, "ready"> & { migrate: () => Promise<void> }> {
+async function createHandle(): Promise<Omit<DbHandle, "ready"> & { migrate: () => Promise<void>; close: () => Promise<void> }> {
   const url = databaseUrl();
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     const { default: postgres } = await import("postgres");
@@ -39,6 +39,7 @@ async function createHandle(): Promise<Omit<DbHandle, "ready"> & { migrate: () =
           await migrate(db as never, { migrationsFolder: MIGRATIONS_DIR });
         }
       },
+      close: () => client.end({ timeout: 5 }),
     };
   }
   const dataDir = url.startsWith("pglite:") ? url.slice("pglite:".length) : path.join(process.cwd(), ".data", "pglite");
@@ -48,7 +49,7 @@ async function createHandle(): Promise<Omit<DbHandle, "ready"> & { migrate: () =
   const { migrate } = await import("drizzle-orm/pglite/migrator");
   const client = new PGlite(dataDir);
   const db = drizzle(client, { schema }) as unknown as Db;
-  return { db, driver: "pglite", migrate: () => migrate(db as never, { migrationsFolder: MIGRATIONS_DIR }) };
+  return { db, driver: "pglite", migrate: () => migrate(db as never, { migrationsFolder: MIGRATIONS_DIR }), close: () => client.close() };
 }
 
 let pending: Promise<DbHandle> | null = null;
@@ -57,11 +58,22 @@ async function handle(): Promise<DbHandle> {
   if (globalForDb.__slideshowDb) return globalForDb.__slideshowDb;
   pending ??= (async () => {
     const created = await createHandle();
-    const ready = created.migrate();
-    const h: DbHandle = { db: created.db, driver: created.driver, ready };
+    const h: DbHandle = { db: created.db, driver: created.driver, ready: Promise.resolve() };
+    // A failed start-up (pooler hiccup, two instances migrating at once) must not poison this
+    // instance for its whole lifetime: forget the handle so the next request starts over.
+    h.ready = created.migrate().catch((error) => {
+      console.error("Database start-up failed; will retry on the next request.", error);
+      if (globalForDb.__slideshowDb === h) globalForDb.__slideshowDb = undefined;
+      pending = null;
+      void created.close().catch(() => {});
+      throw error;
+    });
     globalForDb.__slideshowDb = h;
     return h;
-  })();
+  })().catch((error) => {
+    pending = null;
+    throw error;
+  });
   return pending;
 }
 
