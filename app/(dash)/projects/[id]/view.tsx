@@ -18,6 +18,7 @@ import { suspectMasters } from "@/lib/pipeline/actions";
 import type { CropSummary } from "@/lib/pipeline/crop";
 import { assetKeys, displayAssetKey, orderedSegments, requirements } from "@/lib/pipeline/requirements";
 import { ago, fmtSec, StateBadge } from "../../ui";
+import { MediaPlayer } from "../../media";
 import { ActionButton, AutoRefresh, CopyButton, CropToggle, DeleteProjectButton } from "./client";
 import { CropStrip, PromptInspector } from "./inspect";
 
@@ -97,6 +98,7 @@ export async function ProjectView({
     await Promise.all(orderedSegments(ep).map(async (s) => [s.id, await url(displayAssetKey(ep, s))] as const)),
   );
   const voiceUrls = new Map(await Promise.all(req.spoken.map(async (sid) => [sid, await url(assetKeys.voice(sid))] as const)));
+  const voiceId = (sid: string) => ready.get(assetKeys.voice(sid))?.id ?? `voice/${sid}`;
   const segById = new Map(ep.segments.map((s) => [s.id, s]));
   const speakerNames: Record<string, string> = { [NARRATOR]: "Narrator" };
   if (v2) for (const c of ep.story.characters) speakerNames[c.id] = c.name;
@@ -211,7 +213,11 @@ export async function ProjectView({
         <div className="card flex flex-col gap-2">
           <h2 className="eyebrow">Video</h2>
           {previewUrl || videoUrl ? (
-            <video src={previewUrl ?? videoUrl ?? undefined} controls preload="metadata" className="w-full rounded-xl border border-line" />
+            <MediaPlayer
+              kind="video"
+              id={(previewUrl ? ready.get(assetKeys.preview) : ready.get(assetKeys.video))?.id ?? "video"}
+              src={(previewUrl ?? videoUrl)!}
+            />
           ) : (
             <p className="text-sm text-muted">Not rendered yet.</p>
           )}
@@ -349,7 +355,13 @@ export async function ProjectView({
                   </td>
                   <td className="max-w-md pr-2">
                     {seg && isDialogue(seg) ? (
-                      <LineList lines={seg.lines!} timings={row.lineTimings as LineTiming[]} voiceUrl={voice ?? null} names={speakerNames} />
+                      <LineList
+                        lines={seg.lines!}
+                        timings={row.lineTimings as LineTiming[]}
+                        voiceUrl={voice ?? null}
+                        voiceId={voiceId(row.segmentId)}
+                        names={speakerNames}
+                      />
                     ) : (
                       <p>{row.narration || <span className="text-muted">(silent)</span>}</p>
                     )}
@@ -364,7 +376,7 @@ export async function ProjectView({
                       </details>
                     )}
                     {row.voiceMode !== "normal" && <p className="mt-1 text-warn">voice: {row.voiceMode.replace(/_/g, " ")}</p>}
-                    {voice && <audio src={voice} controls preload="none" className="mt-1 h-7 w-full" />}
+                    {voice && <MediaPlayer kind="audio" id={voiceId(row.segmentId)} src={voice} className="mt-1" />}
                   </td>
                   <td className="pr-2 font-mono text-muted">
                     {fmtSec(row.startSec)}–{fmtSec(row.endSec)}
@@ -521,7 +533,19 @@ const POV_CHIP: Record<PovStatus, string> = { on_screen: "on screen", missing: "
 /** Worth showing line by line: more than one line, or anyone but the narrator speaking. */
 const isDialogue = (seg: Segment) => !!seg.lines && (seg.lines.length > 1 || seg.lines.some((l) => l.speaker !== NARRATOR));
 
-function LineList({ lines, timings, voiceUrl, names }: { lines: Line[]; timings: LineTiming[]; voiceUrl: string | null; names: Record<string, string> }) {
+function LineList({
+  lines,
+  timings,
+  voiceUrl,
+  voiceId,
+  names,
+}: {
+  lines: Line[];
+  timings: LineTiming[];
+  voiceUrl: string | null;
+  voiceId: string;
+  names: Record<string, string>;
+}) {
   const byId = new Map(timings.map((t) => [t.line_id, t]));
   return (
     <ol className="flex flex-col gap-1.5">
@@ -541,7 +565,7 @@ function LineList({ lines, timings, voiceUrl, names }: { lines: Line[]; timings:
               {t && <span className="font-mono text-muted">{(t.end - t.start).toFixed(1)}s</span>}
             </div>
             <p>{line.text}</p>
-            {voiceUrl && t && <audio src={`${voiceUrl}#t=${t.start.toFixed(2)},${t.end.toFixed(2)}`} controls preload="none" className="h-7 w-full" />}
+            {voiceUrl && t && <MediaPlayer kind="audio" id={`${voiceId}:${line.id}`} src={voiceUrl} start={t.start} end={t.end} />}
           </li>
         );
       })}

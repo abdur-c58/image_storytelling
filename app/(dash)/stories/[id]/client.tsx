@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { deleteStoryAction, storyAction, type StoryAction } from "@/app/actions";
 import type { PromptPart } from "@/lib/episode/prompt";
 import type { VoiceSource } from "@/lib/pipeline/voices";
+import { MediaPlayer } from "../../media";
 import { PromptInspector } from "../../projects/[id]/inspect";
 
 export interface MasterView {
@@ -72,6 +73,7 @@ export interface CastView {
   voiceGroup: string | null;
   canSpeak: boolean;
   sampleUrl: string | null;
+  sampleId: string | null;
   /** The latest voice test that hasn't produced a sample yet (queued, recording or failed). */
   sampleStatus: { tone: "muted" | "info" | "bad"; text: string } | null;
   sheets: { key: string; url: string; approved: boolean }[];
@@ -131,7 +133,7 @@ export function CastPanel({ storyId, cast }: { storyId: string; cast: CastView[]
               <td className="min-w-56 pr-3">
                 {c.canSpeak && (
                   <div className="flex flex-col gap-1">
-                    {c.sampleUrl && <audio src={c.sampleUrl} controls preload="none" className="h-7 w-full" />}
+                    {c.sampleUrl && <MediaPlayer kind="audio" id={c.sampleId ?? c.id} src={c.sampleUrl} />}
                     <StoryActionButton storyId={storyId} action={{ kind: "test_voice", speaker: c.id }} label={c.sampleUrl ? "New test" : "Test voice"} small />
                     {c.sampleStatus && <p className={`max-w-64 break-words ${SAMPLE_TONE[c.sampleStatus.tone]}`}>{c.sampleStatus.text}</p>}
                   </div>

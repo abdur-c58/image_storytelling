@@ -336,12 +336,14 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
     }),
   );
   const sampleUrls = new Map<string, string>();
+  const sampleIds = new Map<string, string>();
   const sampleAt = new Map<string, Date>();
   for (const a of candidateRows) {
     if (!a.assetKey.startsWith("voice_sample/")) continue;
     const speaker = a.assetKey.slice("voice_sample/".length);
     if (!sampleUrls.has(speaker)) {
       sampleUrls.set(speaker, await presignAssetGet(a, base));
+      sampleIds.set(speaker, a.id);
       sampleAt.set(speaker, a.createdAt);
     }
   }
@@ -376,6 +378,7 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
       voiceGroup: null,
       canSpeak: true,
       sampleUrl: sampleUrls.get(NARRATOR) ?? null,
+      sampleId: sampleIds.get(NARRATOR) ?? null,
       sampleStatus: sampleStatus(NARRATOR),
       sheets: [],
     },
@@ -390,6 +393,7 @@ async function BibleTab({ story, taskRows, deleted }: { story: StoryRow; taskRow
       voiceGroup: c.voice_group,
       canSpeak: !!c.voice,
       sampleUrl: sampleUrls.get(c.id) ?? null,
+      sampleId: sampleIds.get(c.id) ?? null,
       sampleStatus: sampleStatus(c.id),
       sheets: [
         ...c.outfit_states.map((o) => thumbOf(`char/${c.id}/${o.id}`)),
