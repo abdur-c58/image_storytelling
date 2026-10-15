@@ -15,7 +15,7 @@ import type { ImageItem } from "@/lib/episode/prompt";
 import { StoredStoryBibleSchema, type Episode, type StoryBible } from "@/lib/episode/schema";
 import { approveGate, deleteProject, redoMasterAndRetry, regenerateImage, retryFailed, suspectMasters } from "@/lib/pipeline/actions";
 import { advance } from "@/lib/pipeline/advance";
-import { onTaskCompleted } from "@/lib/pipeline/complete";
+import { finalizeWorkerAssets, onTaskCompleted } from "@/lib/pipeline/complete";
 import { rerollCrops } from "@/lib/pipeline/crop";
 import { ingestDocument } from "@/lib/pipeline/ingest";
 import { hydrateTask } from "@/lib/pipeline/payloads";
@@ -350,6 +350,19 @@ describe("pipeline state machine", () => {
     const p = await project(id);
     expect(p.state).toBe("FAILED");
     expect(p.stateDetail).toMatch(/Flow refused/);
+  });
+
+  it("accepts a deduplicated upload (an earlier task's identical file) when a worker completes", async () => {
+    const id = await makeProject(minimalRaw());
+    const other = await makeProject(minimalRaw());
+    const earlier = await createTask(db, { projectId: id, kind: "worker", type: "voice", scope: "earlier", payload: {} });
+    const later = await createTask(db, { projectId: id, kind: "worker", type: "voice", scope: "later", payload: {} });
+    const base = { assetKey: "voice/seg_001", contentType: "audio/flac", status: "ready", meta: {} } as const;
+    const same = await createAsset(db, { ...base, projectId: id, taskId: earlier.id });
+    const foreign = await createAsset(db, { ...base, projectId: other, taskId: null });
+    expect(await finalizeWorkerAssets(db, later, [same.id])).toBeNull();
+    expect(await finalizeWorkerAssets(db, later, [foreign.id])).toMatch(/Unknown asset ids/);
+    await db.update(tasks).set({ status: "cancelled" }).where(inArray(tasks.id, [earlier.id, later.id]));
   });
 
   it("deletes a project with its files and rows, leaving other projects alone", async () => {

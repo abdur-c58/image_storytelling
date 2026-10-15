@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { markAssetReady, pendingAssetsForTask, readyAssets } from "@/lib/assets";
 import type { Db } from "@/lib/db";
-import { projects, segments, sfxCache, sfxCues, usageEvents, type TaskRow } from "@/lib/db/schema";
+import { assets, projects, segments, sfxCache, sfxCues, usageEvents, type TaskRow } from "@/lib/db/schema";
 import type { LineTiming } from "@/lib/crop/timeline";
 import type { Episode } from "@/lib/episode/schema";
 import { spokenTagWords } from "@/lib/episode/tags";
@@ -24,6 +24,21 @@ interface UsageItem {
 export async function finalizeWorkerAssets(db: Db, task: TaskRow, assetIds: string[]): Promise<string | null> {
   const rows = await pendingAssetsForTask(db, task.id, assetIds);
   const found = new Set(rows.map((r) => r.id));
+  const others = assetIds.filter((id) => !found.has(id));
+  // Identical bytes are deduplicated at registration, which hands back the earlier task's ready asset.
+  const reused = others.length
+    ? await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(
+          and(
+            inArray(assets.id, others),
+            eq(assets.status, "ready"),
+            task.projectId ? eq(assets.projectId, task.projectId) : eq(assets.storyId, task.storyId ?? ""),
+          ),
+        )
+    : [];
+  for (const r of reused) found.add(r.id);
   const unknown = assetIds.filter((id) => !found.has(id));
   if (unknown.length) return `Unknown asset ids for this task: ${unknown.join(", ")}`;
   const storage = getStorage();
