@@ -110,7 +110,7 @@ For each item where `already_uploaded` is `false`:
 2. Paste `final_prompt` exactly (and `negative_prompt` if the tool has a field for it).
 3. Generate, then check the result against **every line of `must_match`**:
    - `kind: "location"`: an **empty** place: no people, animals or characters. Every fixed landmark must be present and where the prompt says. Wrong or missing landmark → regenerate.
-   - Any kind: **no readable letters, numbers or logos** anywhere (signs, helipad markings, shop fronts, clock numerals). Episode images copy the master closely, so lettering here makes every image that uses it fail → regenerate.
+   - Any kind: **no readable letters, numbers or logos** anywhere (signs, helipad markings, shop fronts). Episode images copy the master closely, so lettering here makes every image that uses it fail → regenerate.
    - If the item has a `fix_note`, the previous picture was sent back for that reason; make sure the new one doesn't repeat it.
    - `kind: "character"`: a plain reference sheet of one character. Face, hair, build, clothes and colours must match the description. Anything different → regenerate.
 4. Upload with `asset_key` exactly as given.
@@ -173,7 +173,7 @@ For each item where `already_uploaded` is `false`:
 1. In the image tool, set the aspect ratio to **16:9** (landscape).
 2. If `reference_image_urls` is not empty, add **all** of them as references / ingredients, in the order given. `reference_images` says what each one is: `loc/...` keys are the approved location masters (the place must look like them), `char/...` keys are character sheets, and `group/...` keys show several characters together (use it for how they look side by side).
 3. Paste `final_prompt` exactly. If the tool has a negative prompt field, paste `negative_prompt` there; otherwise ignore it.
-4. Generate. Pick the result that best matches the prompt and the references. Reject results with text, watermarks, extra limbs or the wrong characters. When the prompt says "Exactly N different people", count them, and reject any picture where two people share a face or are merged. **If the fixed landmarks of the place or a character's description don't match the references, regenerate** (see Hard rules).
+4. Generate. Pick the result that best matches the prompt and the references. Reject results with text, watermarks, extra limbs or the wrong characters. When the prompt says "Exactly N different people", count them, and reject any picture where two people share a face or are merged. **If the fixed landmarks of the place or a character's description don't match the references, regenerate** (see Hard rules). Do **not** regenerate for the time shown by clock hands: image tools can't set it reliably, so any time is accepted.
 5. Download it at the highest resolution offered: 2560 px wide or more is wanted (smaller is upscaled and flagged), and under 1280 px is rejected.
 6. Upload it with `asset_key` exactly as given.
 7. Send a heartbeat with progress.
